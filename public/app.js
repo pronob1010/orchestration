@@ -31,7 +31,9 @@ const state = {
   sentryLoading: false,
   sentryError: null,
   sentryUnconfigured: false,
-  sentryFilter: ''
+  sentryFilter: '',
+  sentryProjectFilter: 'all',
+  sentryLevelFilter: 'all'
 };
 
 const els = {
@@ -100,10 +102,11 @@ const els = {
   myListItems: document.getElementById('myListItems'),
   myListCount: document.getElementById('myListCount'),
   myListSearch: document.getElementById('myListSearch'),
-  sentryPanel: document.getElementById('sentryPanel'),
+  sentryTab: document.getElementById('sentryTab'),
   sentryLoadButton: document.getElementById('sentryLoadButton'),
   sentrySearch: document.getElementById('sentrySearch'),
-  sentrySearchWrap: document.getElementById('sentrySearchWrap'),
+  sentryProjectFilter: document.getElementById('sentryProjectFilter'),
+  sentryLevelFilter: document.getElementById('sentryLevelFilter'),
   sentryList: document.getElementById('sentryList'),
   sentryCount: document.getElementById('sentryCount')
 };
@@ -150,7 +153,7 @@ applyTheme(isDarkMode());
 
 // ── View tabs ─────────────────────────────────────────────────────────────────
 
-const VALID_VIEWS = new Set(['issues', 'pull-requests', 'my-list']);
+const VALID_VIEWS = new Set(['issues', 'pull-requests', 'sentry', 'my-list']);
 
 function setActiveView(view) {
   const nextView = VALID_VIEWS.has(view) ? view : 'issues';
@@ -172,10 +175,12 @@ function setActiveView(view) {
   });
 
   if (nextView === 'pull-requests') ensurePullRequestsLoaded();
+  if (nextView === 'sentry') ensureSentryLoaded();
 }
 
 function viewFromHash(hash) {
   if (hash === '#pull-requests-view' || hash === '#pr-review') return 'pull-requests';
+  if (hash === '#sentry-view') return 'sentry';
   if (hash === '#my-list-view') return 'my-list';
   return 'issues';
 }
@@ -1390,10 +1395,13 @@ els.refreshIssuesButton.addEventListener('click', () => refreshIssues(true));
 els.refreshPullRequestsButton.addEventListener('click', () => refreshPullRequests(true));
 els.themeToggle.addEventListener('click', toggleTheme);
 
+const VIEW_HASHES = { 'pull-requests': '#pull-requests-view', 'sentry': '#sentry-view', 'my-list': '#my-list-view' };
+
 els.viewTabs.forEach(tab => {
   tab.addEventListener('click', () => {
-    setActiveView(tab.dataset.viewTab);
-    history.replaceState(null, '', tab.dataset.viewTab === 'pull-requests' ? '#pull-requests-view' : '#issues-view');
+    const view = tab.dataset.viewTab;
+    setActiveView(view);
+    history.replaceState(null, '', VIEW_HASHES[view] || '#issues-view');
   });
 });
 
@@ -1401,10 +1409,10 @@ els.viewLinks.forEach(link => {
   link.addEventListener('click', event => {
     const view = link.dataset.viewLink;
     setActiveView(view);
-    if (view === 'pull-requests') {
+    if (VIEW_HASHES[view]) {
       event.preventDefault();
-      history.replaceState(null, '', '#pull-requests-view');
-      document.getElementById('pull-requests-view')?.scrollIntoView({ block: 'start' });
+      history.replaceState(null, '', VIEW_HASHES[view]);
+      document.getElementById(view + '-view')?.scrollIntoView({ block: 'start' });
     }
   });
 });
@@ -1713,8 +1721,20 @@ function formatSentryCount(n) {
 
 function sentryIssueMatches(issue) {
   const q = state.sentryFilter.trim().toLowerCase();
-  if (!q) return true;
-  return [issue.title, issue.culprit, issue.project, issue.level].join(' ').toLowerCase().includes(q);
+  if (q && ![issue.title, issue.culprit, issue.project, issue.level].join(' ').toLowerCase().includes(q)) return false;
+  if (state.sentryProjectFilter !== 'all' && issue.project !== state.sentryProjectFilter) return false;
+  if (state.sentryLevelFilter !== 'all' && issue.level !== state.sentryLevelFilter) return false;
+  return true;
+}
+
+function renderSentryProjectFilter() {
+  if (!els.sentryProjectFilter) return;
+  const projects = [...new Set(state.sentryIssues.map(i => i.project).filter(Boolean))].sort();
+  const current = state.sentryProjectFilter;
+  els.sentryProjectFilter.innerHTML = [
+    '<option value="all">All projects</option>',
+    ...projects.map(p => `<option value="${escapeHtml(p)}" ${p === current ? 'selected' : ''}>${escapeHtml(p)}</option>`)
+  ].join('');
 }
 
 function renderSentryIssues() {
@@ -1723,20 +1743,18 @@ function renderSentryIssues() {
   if (state.sentryLoading) {
     els.sentryCount.textContent = 'Loading';
     els.sentryCount.className = 'status-pill is-warn';
-    els.sentryList.innerHTML = '<div class="empty-state">Fetching Sentry issues…</div>';
-    if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = true;
+    els.sentryList.innerHTML = '<div class="empty-state">Fetching issues from Sentry…</div>';
     return;
   }
 
   if (state.sentryUnconfigured || (!state.sentryLoaded && state.sentryError)) {
     els.sentryCount.textContent = 'Not configured';
     els.sentryCount.className = 'status-pill is-muted';
-    if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = true;
     els.sentryList.innerHTML = `
       <div class="empty-state sentry-unconfigured-hint">
         <strong>Sentry not configured.</strong><br>
-        ${escapeHtml(state.sentryError || 'Add SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT to your environment.')}<br><br>
-        <code>SENTRY_AUTH_TOKEN=sntrys_…<br>SENTRY_ORG=your-org-slug<br>SENTRY_PROJECT=your-project</code>
+        ${escapeHtml(state.sentryError || 'Add the required variables to your .env file.')}<br><br>
+        <code>SENTRY_AUTH_TOKEN=sntrys_…\nSENTRY_ORG=your-org-slug\nSENTRY_PROJECT=your-project</code>
       </div>
     `;
     return;
@@ -1745,31 +1763,35 @@ function renderSentryIssues() {
   if (!state.sentryLoaded) {
     els.sentryCount.textContent = 'Not loaded';
     els.sentryCount.className = 'status-pill is-muted';
-    if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = true;
-    els.sentryList.innerHTML = '<div class="empty-state sentry-unconfigured-hint">Click ↻ to load unresolved Sentry issues.<br>Requires <code>SENTRY_AUTH_TOKEN</code>, <code>SENTRY_ORG</code>, and <code>SENTRY_PROJECT</code>.</div>';
+    els.sentryList.innerHTML = '<div class="empty-state">Open the Sentry tab to auto-load issues.</div>';
     return;
   }
 
-  if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = false;
+  renderSentryProjectFilter();
 
   const filtered = state.sentryIssues.filter(sentryIssueMatches);
   const total = state.sentryIssues.length;
-  els.sentryCount.textContent = filtered.length < total ? `${filtered.length}/${total}` : `${total} issues`;
+  els.sentryCount.textContent = filtered.length < total ? `${filtered.length} of ${total}` : `${total} issues`;
   els.sentryCount.className = total > 0 ? 'status-pill is-warn' : 'status-pill is-muted';
 
-  if (state.sentryErrors.length) {
+  if (state.sentryErrors.length && !filtered.length) {
     const errHtml = state.sentryErrors.map(e => `<p class="sentry-fetch-error">${escapeHtml(e)}</p>`).join('');
-    els.sentryList.insertAdjacentHTML('beforeend', errHtml);
+    els.sentryList.innerHTML = errHtml;
+    return;
   }
 
   if (!filtered.length) {
     els.sentryList.innerHTML = total
-      ? '<div class="empty-state">No issues match the filter.</div>'
-      : '<div class="empty-state">No unresolved Sentry issues found.</div>';
+      ? '<div class="empty-state">No issues match the current filters.</div>'
+      : '<div class="empty-state">No unresolved Sentry issues found. 🎉</div>';
     return;
   }
 
-  els.sentryList.innerHTML = filtered.map(issue => {
+  const errBanner = state.sentryErrors.length
+    ? state.sentryErrors.map(e => `<p class="sentry-fetch-error">${escapeHtml(e)}</p>`).join('')
+    : '';
+
+  els.sentryList.innerHTML = errBanner + filtered.map(issue => {
     const levelClass = sentryLevelClass(issue.level);
     const events = formatSentryCount(issue.count);
     const users = formatSentryCount(issue.userCount);
@@ -1850,10 +1872,25 @@ function addSentryIssueToMyList(id) {
   toast(`"${issue.title.slice(0, 60)}" added to My List.`, 'success');
 }
 
+function ensureSentryLoaded() {
+  if (state.sentryLoaded || state.sentryLoading) return;
+  loadSentryIssues();
+}
+
 els.sentryLoadButton?.addEventListener('click', loadSentryIssues);
 
 els.sentrySearch?.addEventListener('input', event => {
   state.sentryFilter = event.target.value;
+  renderSentryIssues();
+});
+
+els.sentryProjectFilter?.addEventListener('change', event => {
+  state.sentryProjectFilter = event.target.value;
+  renderSentryIssues();
+});
+
+els.sentryLevelFilter?.addEventListener('change', event => {
+  state.sentryLevelFilter = event.target.value;
   renderSentryIssues();
 });
 

@@ -35,6 +35,13 @@
             <path d="m5 13 4 4L19 7" />
           </svg>
         </a>
+        <a class="rail-button" href="#sentry-view" data-view-link="sentry" title="Sentry issues" aria-label="Sentry issues">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        </a>
         <a class="rail-button" href="#my-list-view" data-view-link="my-list" title="My List" aria-label="My List">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 11l3 3L22 4" />
@@ -81,6 +88,9 @@
           </button>
           <button class="view-tab" id="pullRequestsTab" type="button" role="tab" aria-selected="false" aria-controls="pull-requests-view" data-view-tab="pull-requests">
             Pull Requests
+          </button>
+          <button class="view-tab" id="sentryTab" type="button" role="tab" aria-selected="false" aria-controls="sentry-view" data-view-tab="sentry">
+            Sentry
           </button>
           <button class="view-tab" id="myListTab" type="button" role="tab" aria-selected="false" aria-controls="my-list-view" data-view-tab="my-list">
             My List
@@ -458,77 +468,91 @@
             </section>
           </section>
         </section>
+        <section id="sentry-view" class="view-panel" role="tabpanel" aria-labelledby="sentryTab" data-view-panel="sentry" hidden>
+          <section class="surface sentry-page" aria-labelledby="sentryPageTitle">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Sentry · wedevs</p>
+                <h2 id="sentryPageTitle">Unresolved Issues</h2>
+              </div>
+              <div class="inline-actions">
+                <span id="sentryCount" class="status-pill is-muted">Not loaded</span>
+                <button id="sentryLoadButton" class="icon-button" type="button" title="Refresh Sentry issues (R)" aria-label="Refresh Sentry issues">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-3-6.7" />
+                    <path d="M21 3v6h-6" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="sentry-filter-row">
+              <label class="search-field" style="flex:1;min-width:200px">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                <input id="sentrySearch" type="search" placeholder="Filter by title, culprit, project…" autocomplete="off" />
+              </label>
+              <label class="field compact-field">
+                <span>Project</span>
+                <select id="sentryProjectFilter">
+                  <option value="all">All projects</option>
+                </select>
+              </label>
+              <label class="field compact-field">
+                <span>Level</span>
+                <select id="sentryLevelFilter">
+                  <option value="all">All levels</option>
+                  <option value="fatal">Fatal</option>
+                  <option value="error">Error</option>
+                  <option value="warning">Warning</option>
+                  <option value="info">Info</option>
+                </select>
+              </label>
+            </div>
+
+            <div id="sentryList" class="sentry-list" aria-live="polite">
+              <div class="empty-state sentry-unconfigured-hint">
+                Open the Sentry tab to load unresolved issues.<br>
+                Requires <code>SENTRY_AUTH_TOKEN</code>, <code>SENTRY_ORG</code>, and <code>SENTRY_PROJECT</code> in your <code>.env</code>.
+              </div>
+            </div>
+          </section>
+        </section>
+
         <section id="my-list-view" class="view-panel" role="tabpanel" aria-labelledby="myListTab" data-view-panel="my-list" hidden>
           <div class="my-list-page">
 
-            <!-- Left column: Add form + Sentry browser -->
-            <div class="my-list-left">
-
-              <!-- Add item form -->
-              <section class="surface my-list-form-panel" aria-labelledby="myListFormTitle">
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Personal backlog</p>
-                    <h2 id="myListFormTitle">My List</h2>
-                  </div>
-                  <span id="myListCount" class="status-pill is-muted">0 items</span>
+            <!-- Add item form -->
+            <section class="surface my-list-form-panel" aria-labelledby="myListFormTitle">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Personal backlog</p>
+                  <h2 id="myListFormTitle">My List</h2>
                 </div>
-                <form id="myListForm" class="my-list-form">
-                  <label class="field">
-                    <span>Title</span>
-                    <input id="myListTitle" type="text" placeholder="Login fails when email has a plus sign" autocomplete="off" required />
-                  </label>
-                  <label class="field">
-                    <span>Description</span>
-                    <textarea id="myListBody" rows="4" placeholder="Steps to reproduce, expected vs actual, affected service…"></textarea>
-                  </label>
-                  <label class="field">
-                    <span>Labels <span style="font-weight:400;opacity:.7">(comma separated)</span></span>
-                    <input id="myListLabels" type="text" placeholder="bug, auth-service" autocomplete="off" />
-                  </label>
-                  <div class="my-list-form-actions">
-                    <button id="myListAddButton" class="primary-button" type="submit">
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-                      Add to list
-                    </button>
-                  </div>
-                </form>
-              </section>
-
-              <!-- Sentry browser -->
-              <section class="surface sentry-panel" id="sentryPanel" aria-labelledby="sentryTitle">
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Sentry</p>
-                    <h2 id="sentryTitle">Unresolved Issues</h2>
-                  </div>
-                  <div class="inline-actions">
-                    <span id="sentryCount" class="status-pill is-muted">Not loaded</span>
-                    <button id="sentryLoadButton" class="icon-button" type="button" title="Load Sentry issues" aria-label="Load Sentry issues">
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M21 12a9 9 0 1 1-3-6.7" />
-                        <path d="M21 3v6h-6" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-
-                <label class="search-field" id="sentrySearchWrap" hidden>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-                  <input id="sentrySearch" type="search" placeholder="Filter Sentry issues…" autocomplete="off" />
+                <span id="myListCount" class="status-pill is-muted">0 items</span>
+              </div>
+              <form id="myListForm" class="my-list-form">
+                <label class="field">
+                  <span>Title</span>
+                  <input id="myListTitle" type="text" placeholder="Login fails when email has a plus sign" autocomplete="off" required />
                 </label>
-
-                <div id="sentryList" class="sentry-list" aria-live="polite">
-                  <div class="empty-state sentry-unconfigured-hint">
-                    Click <strong>↻</strong> to load unresolved Sentry issues.<br>
-                    Requires <code>SENTRY_AUTH_TOKEN</code>, <code>SENTRY_ORG</code>, and <code>SENTRY_PROJECT</code>.
-                  </div>
+                <label class="field">
+                  <span>Description</span>
+                  <textarea id="myListBody" rows="4" placeholder="Steps to reproduce, expected vs actual, affected service…"></textarea>
+                </label>
+                <label class="field">
+                  <span>Labels <span style="font-weight:400;opacity:.7">(comma separated)</span></span>
+                  <input id="myListLabels" type="text" placeholder="bug, auth-service" autocomplete="off" />
+                </label>
+                <div class="my-list-form-actions">
+                  <button id="myListAddButton" class="primary-button" type="submit">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                    Add to list
+                  </button>
                 </div>
-              </section>
+              </form>
+            </section>
 
-            </div>
-
-            <!-- Right column: saved items -->
+            <!-- Saved items -->
             <section class="surface my-list-items-panel" aria-labelledby="myListItemsTitle">
               <div class="section-heading">
                 <div>
@@ -541,7 +565,7 @@
                 </label>
               </div>
               <div id="myListItems" class="my-list-items" aria-live="polite">
-                <div class="empty-state">No items yet. Add one above or import from Sentry.</div>
+                <div class="empty-state">No items yet. Add one above or save from the Sentry tab.</div>
               </div>
             </section>
 
