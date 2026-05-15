@@ -6,6 +6,8 @@ A zero-dependency local web UI for managing per-issue Git worktrees across a **m
 ![No dependencies](https://img.shields.io/badge/dependencies-none-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 
+→ **[Full user guide](GUIDE.md)**
+
 ---
 
 ## What it does
