@@ -36,7 +36,7 @@ const { listRepos } = require('./lib/repos');
 const { listGitHubIssues, listGitHubPullRequests, createGitHubIssue } = require('./lib/github');
 const { listWorkspaces, createWorkspace, cleanupWorkspace, purgeWorkspace } = require('./lib/workspaces');
 const { openWorkspace, openClaudeCodeSession } = require('./lib/open');
-const { listSentryIssues } = require('./lib/sentry');
+const { listSentryIssues, getSentryIssueDetail } = require('./lib/sentry');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -168,6 +168,12 @@ async function route(req, res) {
   if (url.pathname === '/api/sentry/issues' && req.method === 'GET') {
     const query = url.searchParams.get('query') || 'is:unresolved';
     jsonResponse(res, 200, await listSentryIssues({ query }));
+    return;
+  }
+
+  const sentryIssueDetailMatch = url.pathname.match(/^\/api\/sentry\/issues\/([^/]+)$/);
+  if (sentryIssueDetailMatch && req.method === 'GET') {
+    jsonResponse(res, 200, await getSentryIssueDetail(sentryIssueDetailMatch[1]));
     return;
   }
 

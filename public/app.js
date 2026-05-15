@@ -34,7 +34,9 @@ const state = {
   sentryFilter: '',
   sentryProjectFilter: 'all',
   sentryLevelFilter: 'all',
-  selectedSentryId: null
+  selectedSentryId: null,
+  sentryDetailCache: {},
+  sentryDetailLoading: new Set()
 };
 
 const els = {
@@ -1743,6 +1745,98 @@ function renderSentryProjectFilter() {
   ].join('');
 }
 
+// ── Sentry detail helpers ─────────────────────────────────────────────────────
+
+function renderSentryFrameContext(frame) {
+  if (!frame.context || !frame.context.length) return '';
+
+  const lines = frame.context.map(([lineNo, code]) => {
+    const isCurrent = lineNo === frame.lineno;
+    const lineStr = String(lineNo).padStart(4);
+    return `<span class="sentry-code-line${isCurrent ? ' is-current' : ''}">${escapeHtml(lineStr)}  ${escapeHtml(code)}</span>`;
+  }).join('\n');
+
+  return `<pre class="sentry-frame-context">${lines}</pre>`;
+}
+
+function renderSentryFrameVars(vars) {
+  const entries = Object.entries(vars);
+  if (!entries.length) return '';
+  const rows = entries.slice(0, 12).map(([k, v]) => {
+    const val = typeof v === 'string' ? v : JSON.stringify(v);
+    return `<tr><td class="sentry-var-key">${escapeHtml(k)}</td><td class="sentry-var-val">${escapeHtml(val.slice(0, 200))}</td></tr>`;
+  }).join('');
+  return `<table class="sentry-vars-table">${rows}</table>`;
+}
+
+function renderSentryStacktrace(frames) {
+  if (!frames.length) return '<p class="sentry-no-frames">No frames available.</p>';
+
+  const inAppCount = frames.filter(f => f.inApp).length;
+  let frameworkGroup = [];
+  const parts = [];
+  let frameworkIndex = 0;
+
+  const flushFramework = () => {
+    if (!frameworkGroup.length) return;
+    const idx = frameworkIndex++;
+    const inner = frameworkGroup.map(f => {
+      const location = f.filename ? `${f.filename}:${f.lineno}` : '';
+      return `<div class="sentry-frame is-framework">
+        <div class="sentry-frame-header">
+          <span class="sentry-frame-func">${escapeHtml(f.fn || f.module || '(unknown)')}</span>
+          ${location ? `<span class="sentry-frame-location">${escapeHtml(location)}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+    parts.push(`
+      <div class="sentry-frame-group">
+        <button class="sentry-frame-group-toggle" type="button" data-frame-group="${idx}">
+          ${frameworkGroup.length} framework frame${frameworkGroup.length > 1 ? 's' : ''}
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+        <div class="sentry-frame-group-body" id="sentry-fg-${idx}" hidden>${inner}</div>
+      </div>`);
+    frameworkGroup = [];
+  };
+
+  frames.forEach((frame, i) => {
+    if (!frame.inApp) {
+      frameworkGroup.push(frame);
+      return;
+    }
+    flushFramework();
+
+    const isSuspect = i === 0 && inAppCount > 0;
+    const shortFile = frame.filename.replace(/^.*?(\/modules\/|\/src\/|\/app\/|\/pages\/)/, '$1');
+    const location = frame.filename ? `${shortFile}:${frame.lineno}` : '';
+
+    parts.push(`
+      <div class="sentry-frame is-in-app${isSuspect ? ' is-suspect' : ''}">
+        <div class="sentry-frame-header">
+          <div class="sentry-frame-fn-row">
+            <span class="sentry-frame-func">${escapeHtml(frame.fn || frame.module || '(anonymous)')}</span>
+            ${location ? `<span class="sentry-frame-location">${escapeHtml(location)}</span>` : ''}
+          </div>
+          <span class="tag${isSuspect ? ' is-dirty' : ''}">in app</span>
+        </div>
+        ${renderSentryFrameContext(frame)}
+        ${renderSentryFrameVars(frame.vars)}
+      </div>`);
+  });
+
+  flushFramework();
+  return parts.join('');
+}
+
+function renderSentryTags(tags) {
+  if (!tags.length) return '<p class="sentry-no-tags is-muted">No tags on this event.</p>';
+  const rows = tags.map(t =>
+    `<tr><td class="sentry-tag-key">${escapeHtml(t.key)}</td><td class="sentry-tag-val">${escapeHtml(t.value)}</td></tr>`
+  ).join('');
+  return `<table class="sentry-tags-table">${rows}</table>`;
+}
+
 function renderSentryDetail() {
   if (!els.sentryDetail) return;
   const issue = selectedSentryIssue();
@@ -1758,56 +1852,105 @@ function renderSentryDetail() {
   const firstSeen = issue.firstSeen ? new Date(issue.firstSeen).toLocaleString() : '—';
   const lastSeen = issue.lastSeen ? new Date(issue.lastSeen).toLocaleString() : '—';
 
-  els.sentryDetail.innerHTML = `
-    <div class="sentry-detail-card">
-      <div class="sentry-detail-header">
-        <div class="repo-tags">
-          <span class="tag ${levelClass}">${escapeHtml(issue.level)}</span>
-          ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
-          ${issue.isUnhandled ? '<span class="tag is-dirty">unhandled</span>' : ''}
-          ${issue.type ? `<span class="tag is-muted">${escapeHtml(issue.type)}</span>` : ''}
-        </div>
-        ${issue.permalink ? `<a class="secondary-button sentry-link" href="${escapeHtml(issue.permalink)}" target="_blank" rel="noopener">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
-          Sentry
-        </a>` : ''}
+  const baseHtml = `
+    <div class="sentry-detail-header">
+      <div class="repo-tags">
+        <span class="tag ${levelClass}">${escapeHtml(issue.level)}</span>
+        ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
+        ${issue.isUnhandled ? '<span class="tag is-dirty">unhandled</span>' : ''}
+        ${issue.type ? `<span class="tag is-muted">${escapeHtml(issue.type)}</span>` : ''}
       </div>
+      ${issue.permalink ? `<a class="secondary-button sentry-link" href="${escapeHtml(issue.permalink)}" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+        Sentry ↗
+      </a>` : ''}
+    </div>
 
-      <h3 class="sentry-detail-title">${escapeHtml(issue.title)}</h3>
+    <h3 class="sentry-detail-title">${escapeHtml(issue.title)}</h3>
+    ${issue.culprit ? `<p class="sentry-detail-culprit">${escapeHtml(issue.culprit)}</p>` : ''}
 
-      ${issue.culprit ? `<p class="sentry-detail-culprit">${escapeHtml(issue.culprit)}</p>` : ''}
+    <div class="sentry-detail-meta">
+      <span><strong>ID:</strong> ${escapeHtml(issue.id)}</span>
+      <span><strong>Project:</strong> ${escapeHtml(issue.project)}</span>
+      ${issue.lastSeen ? `<span><strong>Last seen:</strong> ${escapeHtml(new Date(issue.lastSeen).toLocaleString())}</span>` : ''}
+    </div>
 
-      <div class="sentry-detail-stats">
-        <div class="sentry-stat">
-          <span class="sentry-stat-value">${escapeHtml(events)}</span>
-          <span class="sentry-stat-label">events</span>
-        </div>
-        <div class="sentry-stat">
-          <span class="sentry-stat-value">${escapeHtml(users)}</span>
-          <span class="sentry-stat-label">users affected</span>
-        </div>
-        <div class="sentry-stat">
-          <span class="sentry-stat-value">${escapeHtml(lastSeen)}</span>
-          <span class="sentry-stat-label">last seen</span>
-        </div>
-        <div class="sentry-stat">
-          <span class="sentry-stat-value">${escapeHtml(firstSeen)}</span>
-          <span class="sentry-stat-label">first seen</span>
-        </div>
+    <div class="sentry-detail-stats">
+      <div class="sentry-stat">
+        <span class="sentry-stat-value">${escapeHtml(events)}</span>
+        <span class="sentry-stat-label">events</span>
       </div>
-
-      <div class="sentry-detail-actions">
-        <button class="primary-button" type="button" data-sentry-detail-action="add">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          Add to My List
-        </button>
-        <button class="secondary-button" type="button" data-sentry-detail-action="workspace">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          Create Workspace
-        </button>
+      <div class="sentry-stat">
+        <span class="sentry-stat-value">${escapeHtml(users)}</span>
+        <span class="sentry-stat-label">users</span>
+      </div>
+      <div class="sentry-stat">
+        <span class="sentry-stat-value">${escapeHtml(lastSeen)}</span>
+        <span class="sentry-stat-label">last seen</span>
+      </div>
+      <div class="sentry-stat">
+        <span class="sentry-stat-value">${escapeHtml(firstSeen)}</span>
+        <span class="sentry-stat-label">first seen</span>
       </div>
     </div>
-  `;
+
+    <div class="sentry-detail-actions">
+      <button class="primary-button" type="button" data-sentry-detail-action="add">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        Add to My List
+      </button>
+      <button class="secondary-button" type="button" data-sentry-detail-action="workspace">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        Create Workspace
+      </button>
+    </div>`;
+
+  const detail = state.sentryDetailCache[issue.id];
+
+  if (!detail) {
+    // Trigger async load, show spinner in the extended sections only
+    loadSentryIssueDetail(issue.id);
+    els.sentryDetail.innerHTML = `<div class="sentry-detail-card">
+      ${baseHtml}
+      <div class="sentry-detail-loading">Loading tags and stacktrace…</div>
+    </div>`;
+    return;
+  }
+
+  const tagsSection = `
+    <section class="sentry-detail-section">
+      <h4 class="sentry-section-title">Tags</h4>
+      ${detail.error ? `<p class="sentry-fetch-error">${escapeHtml(detail.error)}</p>` : renderSentryTags(detail.tags || [])}
+    </section>`;
+
+  const exceptionsSection = (detail.exceptions || []).map((exc, i) => `
+    <section class="sentry-detail-section">
+      <h4 class="sentry-section-title">Exception${detail.exceptions.length > 1 ? ` ${i + 1}` : ''}</h4>
+      <p class="sentry-exception-header"><strong>${escapeHtml(exc.type)}</strong>: ${escapeHtml(exc.value)}</p>
+      <div class="sentry-stacktrace">${renderSentryStacktrace(exc.frames || [])}</div>
+    </section>`).join('');
+
+  const errBanner = (detail.errors || []).length
+    ? detail.errors.map(e => `<p class="sentry-fetch-error">${escapeHtml(e)}</p>`).join('')
+    : '';
+
+  els.sentryDetail.innerHTML = `<div class="sentry-detail-card">
+    ${baseHtml}
+    ${errBanner}
+    ${tagsSection}
+    ${exceptionsSection || ''}
+  </div>`;
+
+  // Wire up framework-frame toggles (rendered inside innerHTML so need post-render binding)
+  els.sentryDetail.querySelectorAll('.sentry-frame-group-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const body = document.getElementById(`sentry-fg-${btn.dataset.frameGroup}`);
+      if (!body) return;
+      const open = body.hidden;
+      body.hidden = !open;
+      btn.classList.toggle('is-open', open);
+    });
+  });
 }
 
 function renderSentryIssues() {
@@ -1911,15 +2054,34 @@ async function loadSentryIssues() {
 }
 
 function sentryIssueBody(issue) {
+  const detail = state.sentryDetailCache[issue.id];
   const lines = [
     `**Sentry Issue:** ${issue.id}`,
+    `**Project:** ${issue.project}`,
     `**Level:** ${issue.level}${issue.isUnhandled ? ' (unhandled)' : ''}`,
     `**Occurrences:** ${issue.count} events affecting ${issue.userCount} users`,
     issue.lastSeen ? `**Last seen:** ${new Date(issue.lastSeen).toLocaleString()}` : '',
-    issue.firstSeen ? `**First seen:** ${new Date(issue.firstSeen).toLocaleString()}` : '',
     issue.culprit ? `**Culprit:** ${issue.culprit}` : '',
     issue.permalink ? `**Link:** ${issue.permalink}` : ''
   ].filter(Boolean);
+
+  // Include top exception + in-app frames if detail is cached
+  if (detail && !detail.error && detail.exceptions?.length) {
+    const exc = detail.exceptions[0];
+    lines.push('', `**Exception:** ${exc.type}: ${exc.value}`);
+    const inAppFrames = (exc.frames || []).filter(f => f.inApp).slice(0, 5);
+    if (inAppFrames.length) {
+      lines.push('', '**Stack (in-app frames):**');
+      inAppFrames.forEach(f => lines.push(`- ${f.fn || f.module} in ${f.filename}:${f.lineno}`));
+    }
+    const importantTags = ['transaction', 'url', 'server_name', 'runtime', 'environment', 'os'];
+    const keyTags = (detail.tags || []).filter(t => importantTags.includes(t.key));
+    if (keyTags.length) {
+      lines.push('', '**Context:**');
+      keyTags.forEach(t => lines.push(`- ${t.key}: ${t.value}`));
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -1932,6 +2094,20 @@ function addSentryIssueToMyList(id) {
   const labels = [...new Set([issue.project, issue.level, 'sentry', ...mappedRepos])].filter(Boolean);
   addMyListItem(issue.title, sentryIssueBody(issue), labels);
   toast(`"${issue.title.slice(0, 60)}" added to My List.`, 'success');
+}
+
+async function loadSentryIssueDetail(id) {
+  if (state.sentryDetailCache[id] || state.sentryDetailLoading.has(id)) return;
+  state.sentryDetailLoading.add(id);
+  try {
+    const data = await api(`/api/sentry/issues/${encodeURIComponent(id)}`);
+    state.sentryDetailCache[id] = data;
+  } catch (err) {
+    state.sentryDetailCache[id] = { error: err.message, tags: [], exceptions: [], errors: [] };
+  } finally {
+    state.sentryDetailLoading.delete(id);
+    if (state.selectedSentryId === id) renderSentryDetail();
+  }
 }
 
 function ensureSentryLoaded() {

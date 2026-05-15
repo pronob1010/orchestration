@@ -1425,6 +1425,10 @@ svg {
 
 .sentry-detail-panel {
   padding: 18px;
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
 }
 
 .sentry-filter-row {
@@ -1692,9 +1696,272 @@ svg {
   border-radius: 6px;
 }
 
-/* ── Sentry level tag overrides (these use existing .tag base) ─────────────── */
+/* ── Sentry level tag overrides ──────────────────────────────────────────────── */
 
 .tag.is-warn {
   background: rgba(217, 119, 6, .12);
   color: #d97706;
+}
+
+/* ── Sentry detail card ──────────────────────────────────────────────────────── */
+
+.sentry-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.sentry-detail-loading {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 12px 0;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+/* ── Sentry detail sections ──────────────────────────────────────────────────── */
+
+.sentry-detail-section {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.sentry-section-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+
+.sentry-no-tags,
+.sentry-no-frames {
+  font-size: 13px;
+}
+
+/* ── Tags table ──────────────────────────────────────────────────────────────── */
+
+.sentry-tags-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.sentry-tags-table tr {
+  border-bottom: 1px solid var(--line);
+}
+
+.sentry-tags-table tr:last-child {
+  border-bottom: none;
+}
+
+.sentry-tag-key {
+  padding: 5px 10px 5px 0;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  vertical-align: top;
+  width: 36%;
+}
+
+.sentry-tag-val {
+  padding: 5px 0;
+  color: var(--text);
+  word-break: break-all;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+/* ── Exception header ────────────────────────────────────────────────────────── */
+
+.sentry-exception-header {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  background: var(--red-soft);
+  border-radius: 6px;
+  border-left: 3px solid var(--red);
+}
+
+/* ── Stacktrace ──────────────────────────────────────────────────────────────── */
+
+.sentry-stacktrace {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sentry-frame {
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.sentry-frame.is-in-app {
+  border-color: var(--line-strong);
+}
+
+.sentry-frame.is-suspect {
+  border-color: var(--red, #dc2626);
+}
+
+.sentry-frame.is-framework {
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+
+.sentry-frame.is-framework:last-child {
+  border-bottom: none;
+}
+
+.sentry-frame-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+}
+
+.sentry-frame.is-in-app .sentry-frame-header {
+  background: var(--surface-soft);
+}
+
+.sentry-frame.is-suspect .sentry-frame-header {
+  background: var(--red-soft);
+}
+
+.sentry-frame-fn-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sentry-frame-func {
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.sentry-frame-location {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.sentry-frame-context {
+  margin: 0;
+  padding: 0;
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-size: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  line-height: 1.6;
+  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sentry-code-line {
+  padding: 0 14px;
+  white-space: pre;
+  display: block;
+}
+
+.sentry-code-line.is-current {
+  background: rgba(239, 68, 68, .18);
+  color: #fca5a5;
+  font-weight: 600;
+}
+
+/* ── Frame variables ─────────────────────────────────────────────────────────── */
+
+.sentry-vars-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 11.5px;
+}
+
+.sentry-vars-table tr {
+  border-top: 1px solid var(--line);
+}
+
+.sentry-var-key {
+  padding: 4px 10px 4px 12px;
+  color: var(--muted);
+  font-weight: 600;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: nowrap;
+  vertical-align: top;
+  width: 30%;
+}
+
+.sentry-var-val {
+  padding: 4px 12px 4px 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--code-text);
+  background: var(--code-bg);
+  word-break: break-all;
+}
+
+/* ── Framework frame group ───────────────────────────────────────────────────── */
+
+.sentry-frame-group {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.sentry-frame-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  gap: 8px;
+}
+
+.sentry-frame-group-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sentry-frame-group-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+
+.sentry-frame-group-toggle.is-open svg {
+  transform: rotate(180deg);
+}
+
+.sentry-frame-group-body {
+  border-top: 1px solid var(--line);
 }
