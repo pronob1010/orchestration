@@ -7,6 +7,29 @@ const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
 
+// Load .env from the project directory if present (no external dependency needed).
+// Shell environment variables always take precedence over .env values.
+(function loadDotEnv() {
+  const envFile = path.join(__dirname, '.env');
+  if (!fsSync.existsSync(envFile)) return;
+  try {
+    fsSync.readFileSync(envFile, 'utf8')
+      .split('\n')
+      .forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const eq = trimmed.indexOf('=');
+        if (eq === -1) return;
+        const key = trimmed.slice(0, eq).trim();
+        const val = trimmed.slice(eq + 1).trim().replace(/^(['"])(.*)\1$/, '$2');
+        if (key && !(key in process.env)) process.env[key] = val;
+      });
+    console.log('Loaded .env');
+  } catch (err) {
+    console.warn('Could not load .env:', err.message);
+  }
+}());
+
 const { ROOT, PORT, HOST, DEFAULT_BASE_REF, GITHUB_ISSUES_REPO, MIME_TYPES } = require('./lib/config');
 const { jsonResponse, textResponse, safeJoin, readBody, exists, copyToSystemClipboard } = require('./lib/utils');
 const { listRepos } = require('./lib/repos');
