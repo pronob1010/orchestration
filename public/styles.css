@@ -1271,3 +1271,234 @@ svg {
     justify-content: flex-start;
   }
 }
+
+/* ── My List ─────────────────────────────────────────────────────────────────── */
+
+.my-list-page {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .my-list-page {
+    grid-template-columns: 1fr;
+  }
+}
+
+.my-list-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.my-list-form-panel,
+.my-list-items-panel,
+.sentry-panel {
+  padding: 18px;
+}
+
+.my-list-form {
+  display: grid;
+  gap: 14px;
+}
+
+.my-list-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+  font: inherit;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.my-list-form textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.my-list-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.my-list-items {
+  display: grid;
+  gap: 12px;
+}
+
+.my-list-item {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  transition: border-color 160ms ease;
+}
+
+.my-list-item:hover {
+  border-color: var(--line-strong);
+}
+
+.my-list-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.my-list-item-meta {
+  min-width: 0;
+}
+
+.my-list-item-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 780;
+  overflow-wrap: anywhere;
+}
+
+.my-list-item-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.my-list-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.my-list-item-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.my-list-item-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Sentry browser ──────────────────────────────────────────────────────────── */
+
+.sentry-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sentry-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  transition: border-color 160ms ease;
+}
+
+.sentry-item:hover {
+  border-color: var(--line-strong);
+}
+
+.sentry-item-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.sentry-item-culprit {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sentry-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sentry-item-stats {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.sentry-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.sentry-item-actions .secondary-button,
+.sentry-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.sentry-item-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sentry-unconfigured-hint {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.sentry-unconfigured-hint code {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--code-bg);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre;
+  color: var(--text);
+}
+
+.sentry-fetch-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--red, #dc2626);
+  padding: 6px 10px;
+  background: rgba(220, 38, 38, .07);
+  border-radius: 6px;
+}
+
+/* ── Sentry level tag overrides (these use existing .tag base) ─────────────── */
+
+.tag.is-warn {
+  background: rgba(217, 119, 6, .12);
+  color: #d97706;
+}

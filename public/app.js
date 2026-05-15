@@ -24,7 +24,14 @@ const state = {
   prAuthorFilter: 'all',
   prReviewFilter: 'all',
   filter: '',
-  busy: false
+  busy: false,
+  sentryIssues: [],
+  sentryErrors: [],
+  sentryLoaded: false,
+  sentryLoading: false,
+  sentryError: null,
+  sentryUnconfigured: false,
+  sentryFilter: ''
 };
 
 const els = {
@@ -84,7 +91,21 @@ const els = {
   agentOrchestrator: document.getElementById('agentOrchestrator'),
   agentWorker: document.getElementById('agentWorker'),
   agentObserver: document.getElementById('agentObserver'),
-  agentStandards: document.getElementById('agentStandards')
+  agentStandards: document.getElementById('agentStandards'),
+  myListForm: document.getElementById('myListForm'),
+  myListTitle: document.getElementById('myListTitle'),
+  myListBody: document.getElementById('myListBody'),
+  myListLabels: document.getElementById('myListLabels'),
+  myListAddButton: document.getElementById('myListAddButton'),
+  myListItems: document.getElementById('myListItems'),
+  myListCount: document.getElementById('myListCount'),
+  myListSearch: document.getElementById('myListSearch'),
+  sentryPanel: document.getElementById('sentryPanel'),
+  sentryLoadButton: document.getElementById('sentryLoadButton'),
+  sentrySearch: document.getElementById('sentrySearch'),
+  sentrySearchWrap: document.getElementById('sentrySearchWrap'),
+  sentryList: document.getElementById('sentryList'),
+  sentryCount: document.getElementById('sentryCount')
 };
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -129,8 +150,10 @@ applyTheme(isDarkMode());
 
 // ── View tabs ─────────────────────────────────────────────────────────────────
 
+const VALID_VIEWS = new Set(['issues', 'pull-requests', 'my-list']);
+
 function setActiveView(view) {
-  const nextView = view === 'pull-requests' ? 'pull-requests' : 'issues';
+  const nextView = VALID_VIEWS.has(view) ? view : 'issues';
 
   els.viewTabs.forEach(tab => {
     const isActive = tab.dataset.viewTab === nextView;
@@ -145,17 +168,16 @@ function setActiveView(view) {
   });
 
   els.viewLinks.forEach(link => {
-    const isPrimaryIssueLink = link.dataset.viewLink === 'issues' && link.getAttribute('href') === '#issues-view';
-    link.classList.toggle('is-active', nextView === 'pull-requests' ? link.dataset.viewLink === nextView : isPrimaryIssueLink);
+    link.classList.toggle('is-active', link.dataset.viewLink === nextView);
   });
 
-  if (nextView === 'pull-requests') {
-    ensurePullRequestsLoaded();
-  }
+  if (nextView === 'pull-requests') ensurePullRequestsLoaded();
 }
 
 function viewFromHash(hash) {
-  return hash === '#pull-requests-view' || hash === '#pr-review' ? 'pull-requests' : 'issues';
+  if (hash === '#pull-requests-view' || hash === '#pr-review') return 'pull-requests';
+  if (hash === '#my-list-view') return 'my-list';
+  return 'issues';
 }
 
 setActiveView(viewFromHash(window.location.hash));
@@ -1485,6 +1507,366 @@ setInterval(() => {
     renderWorkspaces();
   }).catch(() => {});
 }, 30000);
+
+// ── My List (localStorage) ────────────────────────────────────────────────────
+
+const MY_LIST_KEY = 'orchestrator:my-list';
+
+function loadMyList() {
+  try {
+    return JSON.parse(localStorage.getItem(MY_LIST_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveMyList(items) {
+  localStorage.setItem(MY_LIST_KEY, JSON.stringify(items));
+}
+
+function myListFilter(item) {
+  const q = (els.myListSearch?.value || '').trim().toLowerCase();
+  if (!q) return true;
+  return [item.title, item.body, ...(item.labels || [])].join(' ').toLowerCase().includes(q);
+}
+
+function renderMyList() {
+  const items = loadMyList();
+  const filtered = items.filter(myListFilter);
+
+  els.myListCount.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+
+  if (!filtered.length) {
+    els.myListItems.innerHTML = items.length
+      ? '<div class="empty-state">No items match the filter.</div>'
+      : '<div class="empty-state">No items yet. Add one above.</div>';
+    return;
+  }
+
+  els.myListItems.innerHTML = filtered.map(item => {
+    const labels = (item.labels || []).map(l => `<span class="tag">${escapeHtml(l)}</span>`).join('');
+    const pushed = item.githubIssueNumber
+      ? `<a class="tag is-blue" href="${escapeHtml(item.githubIssueUrl)}" target="_blank" rel="noopener">#${item.githubIssueNumber}</a>`
+      : '';
+    const date = formatDate(item.createdAt);
+
+    return `
+      <article class="my-list-item" data-item-id="${escapeHtml(item.id)}">
+        <div class="my-list-item-header">
+          <div class="my-list-item-meta">
+            <p class="my-list-item-title">${escapeHtml(item.title)}</p>
+            <p class="issue-subtitle">Added ${escapeHtml(date)}</p>
+          </div>
+          <div class="repo-tags">
+            ${pushed}
+            ${labels}
+          </div>
+        </div>
+        ${item.body ? `<p class="my-list-item-body">${escapeHtml(item.body.slice(0, 300))}${item.body.length > 300 ? '…' : ''}</p>` : ''}
+        <div class="my-list-item-actions">
+          <button class="secondary-button" type="button" data-action="use-item" title="Pre-fill the workspace builder with this item">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            Create Workspace
+          </button>
+          <button class="secondary-button" type="button" data-action="push-item" ${item.githubIssueNumber ? 'disabled title="Already pushed to GitHub"' : 'title="Create a GitHub issue from this item"'}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77a5.07 5.07 0 0 0-.09-3.77S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" /></svg>
+            ${item.githubIssueNumber ? `Pushed #${item.githubIssueNumber}` : 'Push to GitHub'}
+          </button>
+          <button class="secondary-button danger-button" type="button" data-action="delete-item" title="Delete from list">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
+            Delete
+          </button>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function addMyListItem(title, body, labels) {
+  const items = loadMyList();
+  items.unshift({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title,
+    body,
+    labels,
+    createdAt: new Date().toISOString(),
+    githubIssueNumber: null,
+    githubIssueUrl: null
+  });
+  saveMyList(items);
+  renderMyList();
+}
+
+function deleteMyListItem(id) {
+  const items = loadMyList().filter(item => item.id !== id);
+  saveMyList(items);
+  renderMyList();
+}
+
+async function pushMyListItemToGitHub(id) {
+  const items = loadMyList();
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+
+  try {
+    const result = await api('/api/github/issues', {
+      method: 'POST',
+      body: JSON.stringify({
+        repo: state.health?.githubIssuesRepo || '',
+        title: item.title,
+        body: item.body,
+        labels: item.labels
+      })
+    });
+
+    item.githubIssueNumber = result.issue.number;
+    item.githubIssueUrl = result.issue.url;
+    saveMyList(items);
+    renderMyList();
+    toast(`Created GitHub issue #${result.issue.number}`, 'success');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function useMyListItem(id) {
+  const item = loadMyList().find(i => i.id === id);
+  if (!item) return;
+
+  // Pre-fill the builder form
+  els.issueId.value = item.githubIssueNumber ? String(item.githubIssueNumber) : '';
+  els.issueTitle.value = item.title;
+  state.branchNameTouched = false;
+  syncBranchName(true);
+
+  // Suggest repos based on title + body
+  const fakeIssue = { title: item.title, body: item.body, labels: item.labels, assignees: [], number: item.githubIssueNumber || 0, url: item.githubIssueUrl || '' };
+  applySuggestedRepos(fakeIssue);
+
+  // Switch to issues view and scroll to builder
+  setActiveView('issues');
+  history.replaceState(null, '', '#issues-view');
+  document.getElementById('builder')?.scrollIntoView({ behavior: 'smooth' });
+  renderAll();
+  toast(`Builder pre-filled from "${item.title}"`, 'success');
+}
+
+// My List event listeners
+
+els.myListForm?.addEventListener('submit', event => {
+  event.preventDefault();
+  const title = els.myListTitle.value.trim();
+  if (!title) return;
+  const body = els.myListBody.value.trim();
+  const labels = els.myListLabels.value.split(',').map(l => l.trim()).filter(Boolean);
+  addMyListItem(title, body, labels);
+  els.myListForm.reset();
+  toast('Added to list.', 'success');
+});
+
+els.myListItems?.addEventListener('click', event => {
+  const article = event.target.closest('[data-item-id]');
+  if (!article) return;
+  const id = article.dataset.itemId;
+
+  const btn = event.target.closest('[data-action]');
+  if (!btn || btn.disabled) return;
+
+  if (btn.dataset.action === 'use-item') useMyListItem(id);
+  if (btn.dataset.action === 'push-item') pushMyListItemToGitHub(id);
+  if (btn.dataset.action === 'delete-item') {
+    if (window.confirm('Delete this item?')) deleteMyListItem(id);
+  }
+});
+
+els.myListSearch?.addEventListener('input', renderMyList);
+
+// Initial render
+renderMyList();
+
+// ── Sentry project → local repo mapping ──────────────────────────────────────
+
+const SENTRY_PROJECT_REPO_MAP = {
+  'dokan-app':                  ['flycom-app'],
+  'dokan-cloud':                ['dokan-cloud'],
+  'dokan-cloud-backend':        ['dokan-cloud', 'flycom-auth-service', 'flycom-payment-service', 'flycom-integration-service'],
+  'dokan-cloud-dashboard':      ['dashboard'],
+  'dokan-cloud-dashboard-fh':   ['dashboard'],
+  'dokan-cloud-dashboard-rd':   ['dashboard'],
+  'dokan-cloud-storefront':     ['storefront']
+};
+
+// ── Sentry browser ───────────────────────────────────────────────────────────
+
+function sentryLevelClass(level) {
+  if (level === 'error' || level === 'fatal') return 'is-dirty';
+  if (level === 'warning') return 'is-warn';
+  if (level === 'info') return 'is-blue';
+  return 'is-muted';
+}
+
+function formatSentryCount(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function sentryIssueMatches(issue) {
+  const q = state.sentryFilter.trim().toLowerCase();
+  if (!q) return true;
+  return [issue.title, issue.culprit, issue.project, issue.level].join(' ').toLowerCase().includes(q);
+}
+
+function renderSentryIssues() {
+  if (!els.sentryList) return;
+
+  if (state.sentryLoading) {
+    els.sentryCount.textContent = 'Loading';
+    els.sentryCount.className = 'status-pill is-warn';
+    els.sentryList.innerHTML = '<div class="empty-state">Fetching Sentry issues…</div>';
+    if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = true;
+    return;
+  }
+
+  if (state.sentryUnconfigured || (!state.sentryLoaded && state.sentryError)) {
+    els.sentryCount.textContent = 'Not configured';
+    els.sentryCount.className = 'status-pill is-muted';
+    if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = true;
+    els.sentryList.innerHTML = `
+      <div class="empty-state sentry-unconfigured-hint">
+        <strong>Sentry not configured.</strong><br>
+        ${escapeHtml(state.sentryError || 'Add SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT to your environment.')}<br><br>
+        <code>SENTRY_AUTH_TOKEN=sntrys_…<br>SENTRY_ORG=your-org-slug<br>SENTRY_PROJECT=your-project</code>
+      </div>
+    `;
+    return;
+  }
+
+  if (!state.sentryLoaded) {
+    els.sentryCount.textContent = 'Not loaded';
+    els.sentryCount.className = 'status-pill is-muted';
+    if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = true;
+    els.sentryList.innerHTML = '<div class="empty-state sentry-unconfigured-hint">Click ↻ to load unresolved Sentry issues.<br>Requires <code>SENTRY_AUTH_TOKEN</code>, <code>SENTRY_ORG</code>, and <code>SENTRY_PROJECT</code>.</div>';
+    return;
+  }
+
+  if (els.sentrySearchWrap) els.sentrySearchWrap.hidden = false;
+
+  const filtered = state.sentryIssues.filter(sentryIssueMatches);
+  const total = state.sentryIssues.length;
+  els.sentryCount.textContent = filtered.length < total ? `${filtered.length}/${total}` : `${total} issues`;
+  els.sentryCount.className = total > 0 ? 'status-pill is-warn' : 'status-pill is-muted';
+
+  if (state.sentryErrors.length) {
+    const errHtml = state.sentryErrors.map(e => `<p class="sentry-fetch-error">${escapeHtml(e)}</p>`).join('');
+    els.sentryList.insertAdjacentHTML('beforeend', errHtml);
+  }
+
+  if (!filtered.length) {
+    els.sentryList.innerHTML = total
+      ? '<div class="empty-state">No issues match the filter.</div>'
+      : '<div class="empty-state">No unresolved Sentry issues found.</div>';
+    return;
+  }
+
+  els.sentryList.innerHTML = filtered.map(issue => {
+    const levelClass = sentryLevelClass(issue.level);
+    const events = formatSentryCount(issue.count);
+    const users = formatSentryCount(issue.userCount);
+    const when = formatDate(issue.lastSeen);
+    const culprit = issue.culprit ? `<p class="sentry-item-culprit" title="${escapeHtml(issue.culprit)}">${escapeHtml(issue.culprit)}</p>` : '';
+    return `
+      <article class="sentry-item" data-sentry-id="${escapeHtml(issue.id)}">
+        <p class="sentry-item-title">${escapeHtml(issue.title)}</p>
+        ${culprit}
+        <div class="sentry-item-footer">
+          <div class="repo-tags">
+            <span class="tag ${levelClass}">${escapeHtml(issue.level)}</span>
+            ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
+            ${issue.isUnhandled ? '<span class="tag is-dirty">unhandled</span>' : ''}
+          </div>
+          <span class="sentry-item-stats">${escapeHtml(events)} events · ${escapeHtml(users)} users · ${escapeHtml(when)}</span>
+        </div>
+        <div class="sentry-item-actions">
+          <button class="secondary-button" type="button" data-sentry-action="add" title="Add to My List">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            Add to My List
+          </button>
+          ${issue.permalink ? `<a class="secondary-button sentry-link" href="${escapeHtml(issue.permalink)}" target="_blank" rel="noopener" title="Open in Sentry">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+            View in Sentry
+          </a>` : ''}
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function loadSentryIssues() {
+  if (state.sentryLoading) return;
+  state.sentryLoading = true;
+  state.sentryError = null;
+  state.sentryUnconfigured = false;
+  renderSentryIssues();
+
+  try {
+    const data = await api('/api/sentry/issues');
+    state.sentryIssues = data.issues || [];
+    state.sentryErrors = data.errors || [];
+    state.sentryLoaded = true;
+    const suffix = state.sentryErrors.length ? ` (${state.sentryErrors.length} project error${state.sentryErrors.length > 1 ? 's' : ''})` : '';
+    toast(`Loaded ${state.sentryIssues.length} Sentry issues${suffix}.`, state.sentryErrors.length ? 'info' : 'success');
+  } catch (error) {
+    state.sentryError = error.message;
+    state.sentryUnconfigured = error.payload?.unconfigured || false;
+    if (!state.sentryUnconfigured) toast(error.message, 'error');
+  } finally {
+    state.sentryLoading = false;
+    renderSentryIssues();
+  }
+}
+
+function sentryIssueBody(issue) {
+  const lines = [
+    `**Sentry Issue:** ${issue.id}`,
+    `**Level:** ${issue.level}${issue.isUnhandled ? ' (unhandled)' : ''}`,
+    `**Occurrences:** ${issue.count} events affecting ${issue.userCount} users`,
+    issue.lastSeen ? `**Last seen:** ${new Date(issue.lastSeen).toLocaleString()}` : '',
+    issue.firstSeen ? `**First seen:** ${new Date(issue.firstSeen).toLocaleString()}` : '',
+    issue.culprit ? `**Culprit:** ${issue.culprit}` : '',
+    issue.permalink ? `**Link:** ${issue.permalink}` : ''
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+function addSentryIssueToMyList(id) {
+  const issue = state.sentryIssues.find(i => i.id === id);
+  if (!issue) return;
+
+  // Include mapped repo names as labels so applySuggestedRepos picks them up
+  const mappedRepos = SENTRY_PROJECT_REPO_MAP[issue.project] || [];
+  const labels = [...new Set([issue.project, issue.level, 'sentry', ...mappedRepos])].filter(Boolean);
+  addMyListItem(issue.title, sentryIssueBody(issue), labels);
+  toast(`"${issue.title.slice(0, 60)}" added to My List.`, 'success');
+}
+
+els.sentryLoadButton?.addEventListener('click', loadSentryIssues);
+
+els.sentrySearch?.addEventListener('input', event => {
+  state.sentryFilter = event.target.value;
+  renderSentryIssues();
+});
+
+els.sentryList?.addEventListener('click', event => {
+  const article = event.target.closest('[data-sentry-id]');
+  if (!article) return;
+  const id = article.dataset.sentryId;
+
+  const btn = event.target.closest('[data-sentry-action]');
+  if (!btn || btn.disabled) return;
+
+  if (btn.dataset.sentryAction === 'add') addSentryIssueToMyList(id);
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 

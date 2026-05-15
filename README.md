@@ -12,9 +12,9 @@ A zero-dependency local web UI for managing per-issue Git worktrees across a **m
 
 ## About
 
-Modern software teams working across microservices face a recurring friction point: a single GitHub issue often touches three, four, or five independent repos simultaneously. The usual approach — manually branching each repo, keeping track of which folders belong to which task, and stitching together context for an AI agent — wastes time and introduces mistakes.
+A single GitHub issue often touches three, four, or five independent repos simultaneously. The usual approach — manually branching each repo, keeping track of which folders belong to which task, and stitching together context for an AI agent — wastes time and introduces mistakes.
 
-**Orchestrator UI** solves this with a single local web interface.
+**Orchestrator UI** eliminates that friction with a single local web interface.
 
 You pick an issue, it suggests which repos are likely affected based on the issue text, creates isolated `git worktree` branches across all of them in one click, and hands you a structured **worker brief** — a ready-to-paste prompt that gives an AI coding agent (Claude Code, Codex, etc.) the full picture: what the issue is, where the code lives, which branch to work on, and what verification steps to run when done.
 
