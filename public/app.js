@@ -33,7 +33,8 @@ const state = {
   sentryUnconfigured: false,
   sentryFilter: '',
   sentryProjectFilter: 'all',
-  sentryLevelFilter: 'all'
+  sentryLevelFilter: 'all',
+  selectedSentryId: null
 };
 
 const els = {
@@ -108,7 +109,8 @@ const els = {
   sentryProjectFilter: document.getElementById('sentryProjectFilter'),
   sentryLevelFilter: document.getElementById('sentryLevelFilter'),
   sentryList: document.getElementById('sentryList'),
-  sentryCount: document.getElementById('sentryCount')
+  sentryCount: document.getElementById('sentryCount'),
+  sentryDetail: document.getElementById('sentryDetail')
 };
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -1727,6 +1729,10 @@ function sentryIssueMatches(issue) {
   return true;
 }
 
+function selectedSentryIssue() {
+  return state.sentryIssues.find(i => i.id === state.selectedSentryId) || null;
+}
+
 function renderSentryProjectFilter() {
   if (!els.sentryProjectFilter) return;
   const projects = [...new Set(state.sentryIssues.map(i => i.project).filter(Boolean))].sort();
@@ -1737,6 +1743,73 @@ function renderSentryProjectFilter() {
   ].join('');
 }
 
+function renderSentryDetail() {
+  if (!els.sentryDetail) return;
+  const issue = selectedSentryIssue();
+
+  if (!issue) {
+    els.sentryDetail.innerHTML = '<div class="empty-state">Select an issue from the list to see details.</div>';
+    return;
+  }
+
+  const levelClass = sentryLevelClass(issue.level);
+  const events = formatSentryCount(issue.count);
+  const users = formatSentryCount(issue.userCount);
+  const firstSeen = issue.firstSeen ? new Date(issue.firstSeen).toLocaleString() : '—';
+  const lastSeen = issue.lastSeen ? new Date(issue.lastSeen).toLocaleString() : '—';
+
+  els.sentryDetail.innerHTML = `
+    <div class="sentry-detail-card">
+      <div class="sentry-detail-header">
+        <div class="repo-tags">
+          <span class="tag ${levelClass}">${escapeHtml(issue.level)}</span>
+          ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
+          ${issue.isUnhandled ? '<span class="tag is-dirty">unhandled</span>' : ''}
+          ${issue.type ? `<span class="tag is-muted">${escapeHtml(issue.type)}</span>` : ''}
+        </div>
+        ${issue.permalink ? `<a class="secondary-button sentry-link" href="${escapeHtml(issue.permalink)}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+          Sentry
+        </a>` : ''}
+      </div>
+
+      <h3 class="sentry-detail-title">${escapeHtml(issue.title)}</h3>
+
+      ${issue.culprit ? `<p class="sentry-detail-culprit">${escapeHtml(issue.culprit)}</p>` : ''}
+
+      <div class="sentry-detail-stats">
+        <div class="sentry-stat">
+          <span class="sentry-stat-value">${escapeHtml(events)}</span>
+          <span class="sentry-stat-label">events</span>
+        </div>
+        <div class="sentry-stat">
+          <span class="sentry-stat-value">${escapeHtml(users)}</span>
+          <span class="sentry-stat-label">users affected</span>
+        </div>
+        <div class="sentry-stat">
+          <span class="sentry-stat-value">${escapeHtml(lastSeen)}</span>
+          <span class="sentry-stat-label">last seen</span>
+        </div>
+        <div class="sentry-stat">
+          <span class="sentry-stat-value">${escapeHtml(firstSeen)}</span>
+          <span class="sentry-stat-label">first seen</span>
+        </div>
+      </div>
+
+      <div class="sentry-detail-actions">
+        <button class="primary-button" type="button" data-sentry-detail-action="add">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          Add to My List
+        </button>
+        <button class="secondary-button" type="button" data-sentry-detail-action="workspace">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          Create Workspace
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function renderSentryIssues() {
   if (!els.sentryList) return;
 
@@ -1744,6 +1817,7 @@ function renderSentryIssues() {
     els.sentryCount.textContent = 'Loading';
     els.sentryCount.className = 'status-pill is-warn';
     els.sentryList.innerHTML = '<div class="empty-state">Fetching issues from Sentry…</div>';
+    renderSentryDetail();
     return;
   }
 
@@ -1757,6 +1831,7 @@ function renderSentryIssues() {
         <code>SENTRY_AUTH_TOKEN=sntrys_…\nSENTRY_ORG=your-org-slug\nSENTRY_PROJECT=your-project</code>
       </div>
     `;
+    renderSentryDetail();
     return;
   }
 
@@ -1764,6 +1839,7 @@ function renderSentryIssues() {
     els.sentryCount.textContent = 'Not loaded';
     els.sentryCount.className = 'status-pill is-muted';
     els.sentryList.innerHTML = '<div class="empty-state">Open the Sentry tab to auto-load issues.</div>';
+    renderSentryDetail();
     return;
   }
 
@@ -1774,54 +1850,40 @@ function renderSentryIssues() {
   els.sentryCount.textContent = filtered.length < total ? `${filtered.length} of ${total}` : `${total} issues`;
   els.sentryCount.className = total > 0 ? 'status-pill is-warn' : 'status-pill is-muted';
 
-  if (state.sentryErrors.length && !filtered.length) {
-    const errHtml = state.sentryErrors.map(e => `<p class="sentry-fetch-error">${escapeHtml(e)}</p>`).join('');
-    els.sentryList.innerHTML = errHtml;
-    return;
-  }
-
-  if (!filtered.length) {
-    els.sentryList.innerHTML = total
-      ? '<div class="empty-state">No issues match the current filters.</div>'
-      : '<div class="empty-state">No unresolved Sentry issues found. 🎉</div>';
-    return;
-  }
-
   const errBanner = state.sentryErrors.length
     ? state.sentryErrors.map(e => `<p class="sentry-fetch-error">${escapeHtml(e)}</p>`).join('')
     : '';
 
+  if (!filtered.length) {
+    els.sentryList.innerHTML = errBanner + (total
+      ? '<div class="empty-state">No issues match the current filters.</div>'
+      : '<div class="empty-state">No unresolved Sentry issues found. 🎉</div>');
+    renderSentryDetail();
+    return;
+  }
+
   els.sentryList.innerHTML = errBanner + filtered.map(issue => {
     const levelClass = sentryLevelClass(issue.level);
-    const events = formatSentryCount(issue.count);
-    const users = formatSentryCount(issue.userCount);
-    const when = formatDate(issue.lastSeen);
-    const culprit = issue.culprit ? `<p class="sentry-item-culprit" title="${escapeHtml(issue.culprit)}">${escapeHtml(issue.culprit)}</p>` : '';
+    const selected = state.selectedSentryId === issue.id ? 'is-selected' : '';
+    const culprit = issue.culprit
+      ? `<p class="sentry-row-culprit" title="${escapeHtml(issue.culprit)}">${escapeHtml(issue.culprit)}</p>`
+      : '';
     return `
-      <article class="sentry-item" data-sentry-id="${escapeHtml(issue.id)}">
-        <p class="sentry-item-title">${escapeHtml(issue.title)}</p>
-        ${culprit}
-        <div class="sentry-item-footer">
-          <div class="repo-tags">
-            <span class="tag ${levelClass}">${escapeHtml(issue.level)}</span>
-            ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
-            ${issue.isUnhandled ? '<span class="tag is-dirty">unhandled</span>' : ''}
-          </div>
-          <span class="sentry-item-stats">${escapeHtml(events)} events · ${escapeHtml(users)} users · ${escapeHtml(when)}</span>
-        </div>
-        <div class="sentry-item-actions">
-          <button class="secondary-button" type="button" data-sentry-action="add" title="Add to My List">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-            Add to My List
-          </button>
-          ${issue.permalink ? `<a class="secondary-button sentry-link" href="${escapeHtml(issue.permalink)}" target="_blank" rel="noopener" title="Open in Sentry">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
-            View in Sentry
-          </a>` : ''}
-        </div>
-      </article>
+      <button class="sentry-row ${selected}" type="button" data-sentry-id="${escapeHtml(issue.id)}">
+        <span class="sentry-row-body">
+          <span class="sentry-row-title">${escapeHtml(issue.title)}</span>
+          ${culprit}
+        </span>
+        <span class="sentry-row-meta">
+          <span class="tag ${levelClass}">${escapeHtml(issue.level)}</span>
+          <span class="sentry-row-count">${escapeHtml(formatSentryCount(issue.count))}</span>
+          <span class="sentry-row-date">${escapeHtml(formatDate(issue.lastSeen))}</span>
+        </span>
+      </button>
     `;
   }).join('');
+
+  renderSentryDetail();
 }
 
 async function loadSentryIssues() {
@@ -1895,14 +1957,29 @@ els.sentryLevelFilter?.addEventListener('change', event => {
 });
 
 els.sentryList?.addEventListener('click', event => {
-  const article = event.target.closest('[data-sentry-id]');
-  if (!article) return;
-  const id = article.dataset.sentryId;
+  const row = event.target.closest('[data-sentry-id]');
+  if (!row) return;
+  state.selectedSentryId = row.dataset.sentryId;
+  renderSentryIssues();
+});
 
-  const btn = event.target.closest('[data-sentry-action]');
-  if (!btn || btn.disabled) return;
+els.sentryDetail?.addEventListener('click', event => {
+  const btn = event.target.closest('[data-sentry-detail-action]');
+  if (!btn) return;
+  const issue = selectedSentryIssue();
+  if (!issue) return;
 
-  if (btn.dataset.sentryAction === 'add') addSentryIssueToMyList(id);
+  if (btn.dataset.sentryDetailAction === 'add') {
+    addSentryIssueToMyList(issue.id);
+  }
+
+  if (btn.dataset.sentryDetailAction === 'workspace') {
+    addSentryIssueToMyList(issue.id);
+    // Pre-fill builder and switch to issues view
+    const items = loadMyList();
+    const item = items.find(i => i.title === issue.title);
+    if (item) useMyListItem(item.id);
+  }
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

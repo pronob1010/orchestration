@@ -24,6 +24,8 @@
   --brief-bg: #f8fafc;
   --brief-text: #213045;
   --brief-border: var(--line);
+  --hover: rgba(0, 0, 0, .04);
+  --selected-bg: rgba(37, 99, 235, .07);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -53,6 +55,8 @@
     --brief-bg: #161b22;
     --brief-text: #c9d1d9;
     --brief-border: #2a3346;
+    --hover: rgba(255, 255, 255, .05);
+    --selected-bg: rgba(88, 166, 255, .1);
   }
 }
 
@@ -82,6 +86,8 @@
   --brief-bg: #161b22;
   --brief-text: #c9d1d9;
   --brief-border: #2a3346;
+  --hover: rgba(255, 255, 255, .05);
+  --selected-bg: rgba(88, 166, 255, .1);
 }
 
 * {
@@ -1386,22 +1392,201 @@ svg {
   height: 14px;
 }
 
-/* ── Sentry page ─────────────────────────────────────────────────────────────── */
+/* ── Sentry master/detail ────────────────────────────────────────────────────── */
 
-.sentry-page {
+.sentry-view-grid {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .sentry-view-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sentry-browser-panel {
+  padding: 18px;
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sentry-browser-panel .sentry-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.sentry-detail-panel {
   padding: 18px;
 }
 
 .sentry-filter-row {
   display: flex;
   align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 4px;
+  gap: 10px;
+  margin-top: 10px;
 }
 
-.sentry-filter-row .search-field {
+/* ── Sentry list rows ────────────────────────────────────────────────────────── */
+
+.sentry-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.sentry-row:first-child {
+  border-radius: 6px 6px 0 0;
+}
+
+.sentry-row:last-child {
+  border-bottom: none;
+  border-radius: 0 0 6px 6px;
+}
+
+.sentry-row:hover {
+  background: var(--hover);
+}
+
+.sentry-row.is-selected {
+  background: var(--selected-bg, rgba(37, 99, 235, .08));
+}
+
+.sentry-row-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sentry-row-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sentry-row-culprit {
   margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sentry-row-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.sentry-row-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sentry-row-date {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Sentry detail card ──────────────────────────────────────────────────────── */
+
+.sentry-detail-card {
+  display: grid;
+  gap: 16px;
+}
+
+.sentry-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sentry-detail-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 720;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.sentry-detail-culprit {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--code-bg);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.sentry-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.sentry-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--surface-raised, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.sentry-stat-value {
+  font-size: 15px;
+  font-weight: 720;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.sentry-stat-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.sentry-detail-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 4px;
 }
 
 /* ── Sentry browser ──────────────────────────────────────────────────────────── */
