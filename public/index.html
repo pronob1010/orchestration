@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orchestrator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="rail" aria-label="Workspace navigation">
+        <div class="brand-mark" title="DokanCloud Orchestrator">DO</div>
+        <a class="rail-button is-active" href="#issues-view" data-view-link="issues" title="Workspace builder" aria-label="Workspace builder">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </a>
+        <a class="rail-button" href="#issues" data-view-link="issues" title="GitHub issues" aria-label="GitHub issues">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 6h13" />
+            <path d="M8 12h13" />
+            <path d="M8 18h13" />
+            <path d="M3 6h.01" />
+            <path d="M3 12h.01" />
+            <path d="M3 18h.01" />
+          </svg>
+        </a>
+        <a class="rail-button" href="#workspaces" data-view-link="issues" title="Active workspaces" aria-label="Active workspaces">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+          </svg>
+        </a>
+        <a class="rail-button" href="#checks" data-view-link="issues" title="Verification" aria-label="Verification">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 13 4 4L19 7" />
+          </svg>
+        </a>
+        <a class="rail-button" href="#pull-requests-view" data-view-link="pull-requests" title="PR review" aria-label="PR review">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="6" cy="6" r="3" />
+            <circle cx="18" cy="18" r="3" />
+            <path d="M6 9v9" />
+            <path d="M18 15V9a3 3 0 0 0-3-3h-3" />
+          </svg>
+        </a>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local orchestration</p>
+            <h1>DokanCloud Issue Workspaces</h1>
+          </div>
+          <div class="topbar-actions">
+            <span id="serverStatus" class="status-pill is-muted">Connecting</span>
+            <button id="themeToggle" class="icon-button" type="button" title="Toggle dark mode (T)" aria-label="Toggle dark mode">
+              <!-- icon set by JS -->
+              <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+              </svg>
+            </button>
+            <button id="refreshButton" class="icon-button" type="button" title="Refresh (R)" aria-label="Refresh">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-3-6.7" />
+                <path d="M21 3v6h-6" />
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <nav class="view-tabs" role="tablist" aria-label="Orchestrator views">
+          <button class="view-tab is-active" id="issuesTab" type="button" role="tab" aria-selected="true" aria-controls="issues-view" data-view-tab="issues">
+            Issues
+          </button>
+          <button class="view-tab" id="pullRequestsTab" type="button" role="tab" aria-selected="false" aria-controls="pull-requests-view" data-view-tab="pull-requests">
+            Pull Requests
+          </button>
+        </nav>
+
+        <section id="issues-view" class="view-panel is-active" role="tabpanel" aria-labelledby="issuesTab" data-view-panel="issues">
+        <section id="builder" class="workspace-grid">
+          <div class="builder-flow">
+            <section class="surface builder-panel" aria-labelledby="builderTitle">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Create</p>
+                <h2 id="builderTitle">Create Workspace</h2>
+              </div>
+              <span id="selectedCount" class="status-pill">0 repos</span>
+            </div>
+
+            <form id="workspaceForm" class="form-stack">
+              <label class="field">
+                <span>Issue</span>
+                <input id="issueId" name="issueId" type="text" placeholder="101 or issue-101" autocomplete="off" required />
+              </label>
+
+              <label class="field">
+                <span>Title</span>
+                <input id="issueTitle" name="title" type="text" placeholder="Checkout tax total mismatch" autocomplete="off" />
+              </label>
+
+              <label class="field">
+                <span>Branch</span>
+                <input id="branchName" name="branchName" type="text" placeholder="fix/404-on-product-issue-3291" autocomplete="off" />
+              </label>
+
+              <div class="field-row">
+                <label class="field">
+                  <span>Base ref</span>
+                  <input id="baseRef" name="baseRef" type="text" value="origin/develop" autocomplete="off" />
+                </label>
+
+                <label class="toggle-field">
+                  <input id="fetchLatest" type="checkbox" checked />
+                  <span>Fetch remote</span>
+                </label>
+              </div>
+
+              <div class="agent-grid" aria-label="Agent lanes">
+                <label class="field">
+                  <span>Orchestrator</span>
+                  <select id="agentOrchestrator">
+                    <option>Codex</option>
+                    <option>Claude Code</option>
+                    <option>Antigravity</option>
+                    <option>Manual</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Worker</span>
+                  <select id="agentWorker">
+                    <option>Claude Code</option>
+                    <option>Codex</option>
+                    <option>Antigravity</option>
+                    <option>Manual</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Observer</span>
+                  <select id="agentObserver">
+                    <option>Antigravity</option>
+                    <option>Codex</option>
+                    <option>Claude Code</option>
+                    <option>Manual</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Standards</span>
+                  <select id="agentStandards">
+                    <option>Codex</option>
+                    <option>Claude Code</option>
+                    <option>Antigravity</option>
+                    <option>Manual</option>
+                  </select>
+                </label>
+              </div>
+
+              <button id="createButton" class="primary-button" type="submit">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                Create Workspace
+              </button>
+
+              <div id="creationLog" class="creation-log" hidden></div>
+              <p id="createStatus" class="form-status" aria-live="polite"></p>
+            </form>
+            </section>
+
+            <div class="side-stack">
+            <section id="issues" class="surface issue-panel" aria-labelledby="issueListTitle">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">GitHub</p>
+                  <h2 id="issueListTitle">Open Project Issues</h2>
+                </div>
+                <div class="inline-actions">
+                  <span id="issueCount" class="status-pill is-muted">Loading</span>
+                  <button id="refreshIssuesButton" class="icon-button" type="button" title="Refresh issues" aria-label="Refresh issues">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M21 12a9 9 0 1 1-3-6.7" />
+                      <path d="M21 3v6h-6" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <label class="search-field">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input id="issueSearch" type="search" placeholder="Filter issues — press / to focus" autocomplete="off" />
+              </label>
+
+              <label class="field compact-field">
+                <span>Assignee</span>
+                <select id="assigneeFilter">
+                  <option value="all">All assignees</option>
+                  <option value="mine">Mine</option>
+                  <option value="unassigned">Unassigned</option>
+                </select>
+              </label>
+
+              <div id="issueList" class="issue-list" aria-live="polite"></div>
+            </section>
+
+            <section class="surface issue-detail-panel" aria-labelledby="issueDetailTitle">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Brief</p>
+                  <h2 id="issueDetailTitle">Issue Context</h2>
+                </div>
+                <div class="inline-actions">
+                  <button id="copyBriefButton" class="icon-button" type="button" title="Copy worker brief" aria-label="Copy worker brief">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  </button>
+                  <button class="collapse-toggle" data-collapse="brief-body" type="button" aria-label="Collapse section">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="collapsible-body" id="brief-body">
+                <div>
+                  <div id="issueDetail" class="issue-detail"></div>
+                  <label class="field issue-insights-field">
+                    <span>Additional insights</span>
+                    <textarea id="issueInsights" class="issue-context-editor" placeholder="Add reproduction notes, screenshots summary, edge cases, suspected files, QA hints, or anything the agent should not miss."></textarea>
+                  </label>
+                  <div class="brief-actions">
+                    <button id="applySuggestionsButton" class="secondary-button" type="button">Apply Suggestions</button>
+                    <button id="clearSuggestedButton" class="secondary-button" type="button">Clear Suggested</button>
+                  </div>
+                  <pre id="workerBrief" class="brief-box">Select an issue to generate a worker brief.</pre>
+                </div>
+              </div>
+            </section>
+
+            <section class="surface repo-panel" aria-labelledby="repoTitle">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Repos</p>
+                  <h2 id="repoTitle">Select Worktrees</h2>
+                </div>
+                <div class="inline-actions">
+                  <button id="selectDirtyButton" class="secondary-button" type="button">Dirty</button>
+                  <button id="selectAllButton" class="secondary-button" type="button">All</button>
+                  <button id="clearSelectionButton" class="secondary-button" type="button">Clear</button>
+                </div>
+              </div>
+
+              <label class="search-field">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input id="repoSearch" type="search" placeholder="Filter repos" autocomplete="off" />
+              </label>
+
+              <div id="repoList" class="repo-list" aria-live="polite"></div>
+            </section>
+            </div>
+          </div>
+
+          <aside class="right-sidebar" aria-label="Workspace side tools">
+            <section id="checks" class="surface command-panel" aria-labelledby="commandTitle">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Preview</p>
+                  <h2 id="commandTitle">Worktree Commands</h2>
+                </div>
+                <div class="inline-actions">
+                  <button id="copyCommandsButton" class="icon-button" type="button" title="Copy commands" aria-label="Copy commands">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  </button>
+                  <button class="collapse-toggle" data-collapse="commands-body" type="button" aria-label="Collapse section">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="collapsible-body" id="commands-body">
+                <div>
+                  <pre id="commandPreview" class="command-box">Select repos to preview commands.</pre>
+                </div>
+              </div>
+            </section>
+
+          </aside>
+        </section>
+
+        <section id="workspaces" class="surface workspaces-panel" aria-labelledby="workspaceTitle">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Queue</p>
+              <h2 id="workspaceTitle">Issue Workspaces</h2>
+            </div>
+            <span id="workspaceCount" class="status-pill">0 active</span>
+          </div>
+          <div id="workspaceList" class="workspace-list" aria-live="polite"></div>
+        </section>
+        </section>
+
+        <section id="pull-requests-view" class="view-panel" role="tabpanel" aria-labelledby="pullRequestsTab" data-view-panel="pull-requests" hidden>
+          <section id="pr-review" class="pr-review-page">
+            <div class="pr-review-stack">
+              <section class="surface pr-browser-panel" aria-labelledby="pullRequestListTitle">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">GitHub</p>
+                    <h2 id="pullRequestListTitle">Open Pull Requests</h2>
+                  </div>
+                  <div class="inline-actions">
+                    <span id="pullRequestCount" class="status-pill is-muted">Not loaded</span>
+                    <button id="refreshPullRequestsButton" class="icon-button" type="button" title="Refresh pull requests" aria-label="Refresh pull requests">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-3-6.7" />
+                        <path d="M21 3v6h-6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <label class="search-field">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                  <input id="prSearch" type="search" placeholder="Filter PRs by repo, title, author, branch, or label" autocomplete="off" />
+                </label>
+
+                <div class="pr-filter-grid">
+                  <label class="field compact-field">
+                    <span>Repo</span>
+                    <select id="prRepoFilter">
+                      <option value="all">All repos</option>
+                    </select>
+                  </label>
+                  <label class="field compact-field">
+                    <span>Author</span>
+                    <select id="prAuthorFilter">
+                      <option value="all">All authors</option>
+                    </select>
+                  </label>
+                  <label class="field compact-field">
+                    <span>Review</span>
+                    <select id="prReviewFilter">
+                      <option value="all">Any review state</option>
+                      <option value="ready">Ready only</option>
+                      <option value="draft">Draft</option>
+                      <option value="approved">Approved</option>
+                      <option value="changes_requested">Changes requested</option>
+                      <option value="review_required">Review required</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div id="pullRequestErrors" class="pr-error-list" hidden></div>
+                <div id="pullRequestList" class="pr-list" aria-live="polite">
+                  <div class="empty-state">Open the Pull Requests tab to load PRs.</div>
+                </div>
+              </section>
+
+              <section class="surface pr-review-panel" aria-labelledby="prReviewTitle">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Review</p>
+                    <h2 id="prReviewTitle">Pull Request Review</h2>
+                  </div>
+                </div>
+
+                <div class="pr-review-form">
+                  <label class="field">
+                    <span>Primary PR</span>
+                    <input id="reviewPrimaryPr" type="text" placeholder="https://github.com/getdokan/repo/pull/123" autocomplete="off" />
+                  </label>
+
+                  <label class="field">
+                    <span>Related PRs</span>
+                    <textarea id="reviewRelatedPrs" class="compact-textarea" placeholder="One PR URL or repo#number per line"></textarea>
+                  </label>
+
+                  <label class="field">
+                    <span>Context</span>
+                    <textarea id="reviewContext" class="review-context" placeholder="Paste reviewer instructions, release goal, risk notes, or QA context"></textarea>
+                  </label>
+
+                  <div class="review-check-grid" aria-label="Review checks">
+                    <label class="check-row">
+                      <input type="checkbox" data-review-check="Correctness and edge cases" checked />
+                      <span>Correctness</span>
+                    </label>
+                    <label class="check-row">
+                      <input type="checkbox" data-review-check="Cross-service contracts, API compatibility, and deployment order" checked />
+                      <span>Cross-service</span>
+                    </label>
+                    <label class="check-row">
+                      <input type="checkbox" data-review-check="DokanCloud tenant isolation, marketplaceId handling, and internal token boundaries" checked />
+                      <span>Tenant safety</span>
+                    </label>
+                    <label class="check-row">
+                      <input type="checkbox" data-review-check="flycom-dashboard/flycom-storefront user flows, loading states, empty states, and error paths" checked />
+                      <span>UX flows</span>
+                    </label>
+                    <label class="check-row">
+                      <input type="checkbox" data-review-check="Tests, missing verification, migrations, queues, webhooks, and rollback risks" checked />
+                      <span>Verification</span>
+                    </label>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section class="surface pr-review-prompt-panel" aria-labelledby="prReviewPromptTitle">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Prompt</p>
+                  <h2 id="prReviewPromptTitle">Review Brief</h2>
+                </div>
+                <div class="inline-actions">
+                  <button id="copyPrReviewPromptButton" class="icon-button" type="button" title="Copy PR review prompt" aria-label="Copy PR review prompt">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <pre id="prReviewPrompt" class="prompt-box">Add a PR to generate a review brief.</pre>
+              <div class="prompt-footer-actions">
+                <button id="openClaudeCodeReviewButton" class="primary-button agent-open-button" type="button" title="Open Claude Code with this review brief copied">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 2l2 7h7l-5.5 4 2 7L12 16l-5.5 4 2-7L3 9h7z" />
+                  </svg>
+                  Open Claude Code Session
+                </button>
+              </div>
+            </section>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="toastHost" class="toast-host" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
