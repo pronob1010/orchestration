@@ -1,6 +1,6 @@
 # Orchestrator UI
 
-A zero-dependency local web UI for managing per-issue Git worktrees across a monorepo. Built for teams who work with multiple repos per issue and use AI coding agents (Claude Code, Codex, etc.).
+A zero-dependency local web UI for managing per-issue Git worktrees across a **multi-repo or microservices workspace**. Built for teams where a single issue touches multiple independent repos and who use AI coding agents (Claude Code, Codex, etc.).
 
 ![Node ≥ 18](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-blue)
@@ -30,26 +30,45 @@ A zero-dependency local web UI for managing per-issue Git worktrees across a mon
 
 ## Setup
 
-### 1. Clone into your monorepo
+### 1. Clone alongside your services
 
-Place this folder **inside** your monorepo root (or anywhere — point it at your root with `WORKSPACE_ROOT`):
+Place this repo **inside the parent directory** that contains all your service repos:
 
 ```bash
 git clone https://github.com/pronob1010/orchestration
 ```
 
+Your directory layout should look like this — works for both monorepos and microservice workspaces:
+
+```
+/projects/workspace/
+  orchestration/        ← this tool
+  api-service/          ← git repo
+  auth-service/         ← git repo
+  frontend/             ← git repo
+  payment-service/      ← git repo
+  ...
+```
+
+The tool auto-discovers every sibling folder that contains a `.git` directory.
+
 ### 2. Create a sibling issues directory
 
-By default the server creates worktrees in a directory called `<monorepo-name>-issues` next to your monorepo:
+By default worktrees are created in a directory called `<workspace>-issues` next to your workspace:
 
 ```
 /projects/
-  my-monorepo/          ← WORKSPACE_ROOT (auto-detected as parent of orchestrator-ui)
-    orchestrator-ui/
-  my-monorepo-issues/   ← worktrees land here (ISSUE_WORKSPACE_ROOT)
+  workspace/            ← your services live here
+    orchestration/
+    api-service/
+    auth-service/
+  workspace-issues/     ← per-issue worktrees land here
+    issue-2981/
+      api-service/      ← worktree on fix/my-fix-issue-2981
+      auth-service/     ← worktree on fix/my-fix-issue-2981
 ```
 
-You can override both paths with environment variables (see below).
+You can override the issues path with `ISSUE_WORKSPACE_ROOT` (see below).
 
 ### 3. Start the server
 
