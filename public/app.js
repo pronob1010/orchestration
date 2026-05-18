@@ -202,6 +202,83 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+// ── Lightweight markdown → HTML (handles only the subset we generate) ─────────
+function renderMarkdown(md) {
+  if (!md) return '';
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block ```lang … ```
+    if (line.startsWith('```')) {
+      const lang = line.slice(3).trim();
+      const codeLines = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(escapeHtml(lines[i]));
+        i++;
+      }
+      out.push(`<pre class="md-code-block" data-lang="${escapeHtml(lang)}"><code>${codeLines.join('\n')}</code></pre>`);
+      i++; // skip closing ```
+      continue;
+    }
+
+    // ## H2
+    if (/^## /.test(line)) {
+      out.push(`<h3 class="md-h2">${inlineMarkdown(line.slice(3))}</h3>`);
+      i++; continue;
+    }
+
+    // ### H3
+    if (/^### /.test(line)) {
+      out.push(`<h4 class="md-h3">${inlineMarkdown(line.slice(4))}</h4>`);
+      i++; continue;
+    }
+
+    // Bullet list — collect consecutive - lines
+    if (/^- /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^- /.test(lines[i])) {
+        items.push(`<li>${inlineMarkdown(lines[i].slice(2))}</li>`);
+        i++;
+      }
+      out.push(`<ul class="md-list">${items.join('')}</ul>`);
+      continue;
+    }
+
+    // Blank line → paragraph break (swallow consecutive blanks)
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
+    // Regular paragraph line — collect until blank / heading / list / fence
+    const paraLines = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !/^(#{1,4} |```|- )/.test(lines[i])
+    ) {
+      paraLines.push(inlineMarkdown(lines[i]));
+      i++;
+    }
+    if (paraLines.length) out.push(`<p class="md-p">${paraLines.join(' ')}</p>`);
+  }
+
+  return out.join('');
+}
+
+function inlineMarkdown(text) {
+  return escapeHtml(text)
+    // **bold**
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // `inline code`
+    .replace(/`([^`]+)`/g, '<code class="md-code">$1</code>');
+}
+
 function issueSlug(value) {
   const raw = String(value || '').trim().toLowerCase();
   const slug = raw
@@ -1574,7 +1651,10 @@ function renderMyList() {
             ${labels}
           </div>
         </div>
-        ${item.body ? `<p class="my-list-item-body">${escapeHtml(item.body.slice(0, 300))}${item.body.length > 300 ? '…' : ''}</p>` : ''}
+        ${item.body ? `<div class="my-list-item-body md-body">
+          <div class="md-body-inner">${renderMarkdown(item.body)}</div>
+          ${item.body.length > 400 ? `<button class="md-expand-btn" type="button" data-action="expand-body">Show more</button>` : ''}
+        </div>` : ''}
         <div class="my-list-item-actions">
           <button class="secondary-button" type="button" data-action="use-item" title="Pre-fill the workspace builder with this item">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
@@ -1688,6 +1768,12 @@ els.myListItems?.addEventListener('click', event => {
   if (btn.dataset.action === 'push-item') pushMyListItemToGitHub(id);
   if (btn.dataset.action === 'delete-item') {
     if (window.confirm('Delete this item?')) deleteMyListItem(id);
+  }
+  if (btn.dataset.action === 'expand-body') {
+    const body = article.querySelector('.my-list-item-body');
+    if (!body) return;
+    const expanded = body.classList.toggle('is-expanded');
+    btn.textContent = expanded ? 'Show less' : 'Show more';
   }
 });
 
@@ -2053,61 +2139,321 @@ async function loadSentryIssues() {
   }
 }
 
-function sentryIssueBody(issue) {
-  const detail = state.sentryDetailCache[issue.id];
-  const lines = [
-    `**Sentry Issue:** ${issue.id}`,
-    `**Project:** ${issue.project}`,
-    `**Level:** ${issue.level}${issue.isUnhandled ? ' (unhandled)' : ''}`,
-    `**Occurrences:** ${issue.count} events affecting ${issue.userCount} users`,
-    issue.lastSeen ? `**Last seen:** ${new Date(issue.lastSeen).toLocaleString()}` : '',
-    issue.culprit ? `**Culprit:** ${issue.culprit}` : '',
-    issue.permalink ? `**Link:** ${issue.permalink}` : ''
-  ].filter(Boolean);
+// ── Sentry brief generator ────────────────────────────────────────────────────
 
-  // Include top exception + in-app frames if detail is cached
-  if (detail && !detail.error && detail.exceptions?.length) {
-    const exc = detail.exceptions[0];
-    lines.push('', `**Exception:** ${exc.type}: ${exc.value}`);
-    const inAppFrames = (exc.frames || []).filter(f => f.inApp).slice(0, 5);
-    if (inAppFrames.length) {
-      lines.push('', '**Stack (in-app frames):**');
-      inAppFrames.forEach(f => lines.push(`- ${f.fn || f.module} in ${f.filename}:${f.lineno}`));
+function _sentryAnalyseError(type, value) {
+  // Returns { summary, rootCause, fix } plain-English strings based on error patterns.
+  const t = (type || '').trim();
+  const v = (value || '').trim();
+  const vl = v.toLowerCase();
+  const tl = t.toLowerCase();
+
+  // ── TypeError patterns ────────────────────────────────────────────────────
+  if (tl.includes('typeerror')) {
+    // Return type mismatch: "must be of type array, int returned"
+    const retMatch = v.match(/must be of type (\S+),\s*(\S+) returned/i);
+    if (retMatch) {
+      const expected = retMatch[1], got = retMatch[2];
+      return {
+        summary: `A \`${t}\` is thrown because the function declares it returns \`${expected}\` but is actually returning \`${got}\`.`,
+        rootCause: `The return type annotation says \`${expected}\`, but at runtime a \`${got}\` value is returned instead. PHP 8 enforces return types strictly, so this crashes immediately.`,
+        fix: `Audit every \`return\` statement in the flagged function. Either cast to the declared type (\`(${expected}) $value\`), add an early guard that converts non-\`${expected}\` values, or update the return type annotation if the broader behaviour is intentional.`
+      };
     }
-    const importantTags = ['transaction', 'url', 'server_name', 'runtime', 'environment', 'os'];
-    const keyTags = (detail.tags || []).filter(t => importantTags.includes(t.key));
-    if (keyTags.length) {
-      lines.push('', '**Context:**');
-      keyTags.forEach(t => lines.push(`- ${t.key}: ${t.value}`));
+
+    // Argument type mismatch: "Argument #1 ($foo) must be of type …"
+    const argMatch = v.match(/Argument #(\d+)\s*\((\$\S+)\)\s*must be of type (\S+),\s*(\S+) given/i);
+    if (argMatch) {
+      const [, argN, argName, expected, got] = argMatch;
+      return {
+        summary: `\`${t}\`: argument ${argN} (\`${argName}\`) must be \`${expected}\` but a \`${got}\` was passed.`,
+        rootCause: `The caller is passing a \`${got}\` where the function signature requires \`${expected}\`. This usually happens when nullable values or API responses aren't validated before being forwarded.`,
+        fix: `Add a null/type check before calling this function, or use the nullsafe operator (\`?->\`) if \`${argName}\` can be null. If the type should genuinely be broader, widen the parameter type.`
+      };
+    }
+
+    // JS: Cannot read properties of undefined/null
+    const propMatch = v.match(/Cannot read propert(?:y|ies) (?:of )?(undefined|null)(?: \(reading '([^']+)'\))?/i);
+    if (propMatch) {
+      const nullish = propMatch[1], prop = propMatch[2];
+      return {
+        summary: `\`${t}\`: attempted to access \`${prop ? `.${prop}` : 'a property'}\` on \`${nullish}\`.`,
+        rootCause: `The object expected to exist is \`${nullish}\` at the point of access. This typically means an async data fetch hasn't resolved yet, a conditional render is missing, or the API returned an unexpected shape.`,
+        fix: prop
+          ? `Guard the access with optional chaining: \`obj?.${prop}\`, or ensure the data is loaded before the component renders.`
+          : `Add a null guard before accessing the property, or use optional chaining (\`?.\`) throughout.`
+      };
+    }
+
+    // JS: X is not a function
+    const notFnMatch = v.match(/(.+) is not a function/i);
+    if (notFnMatch) {
+      return {
+        summary: `\`${t}\`: \`${notFnMatch[1]}\` is being called as a function but it isn't one.`,
+        rootCause: `At runtime \`${notFnMatch[1]}\` resolves to a non-function value (often \`undefined\`, an object, or a string). This commonly happens after a refactor renames or removes a method, or when an import resolves to the wrong export.`,
+        fix: `Check that \`${notFnMatch[1]}\` is imported and exported correctly. Add a \`typeof\` guard or assert the value before calling it.`
+      };
+    }
+
+    return {
+      summary: `\`${t}\`: ${v}`,
+      rootCause: `A value of the wrong type was encountered at runtime.`,
+      fix: `Review the flagged function's inputs and return values and add type guards or validation before they are used.`
+    };
+  }
+
+  // ── ReferenceError ────────────────────────────────────────────────────────
+  if (tl.includes('referenceerror')) {
+    const notDefined = v.match(/(\S+) is not defined/i);
+    if (notDefined) {
+      return {
+        summary: `\`${t}\`: \`${notDefined[1]}\` is used but was never defined.`,
+        rootCause: `The identifier \`${notDefined[1]}\` isn't in scope at the point of access. Possible causes: missing import, typo in the variable name, or code running before the variable is initialised.`,
+        fix: `Verify the spelling and check that \`${notDefined[1]}\` is imported or declared in the correct scope. If it's conditionally defined, add a guard before using it.`
+      };
+    }
+    return {
+      summary: `\`${t}\`: ${v}`,
+      rootCause: `A variable or identifier was accessed before it was defined.`,
+      fix: `Check the declaration order and imports in the failing file.`
+    };
+  }
+
+  // ── Error / Exception (generic) ───────────────────────────────────────────
+  if (tl.includes('error') || tl.includes('exception')) {
+    // Model not found
+    if (vl.includes('no query results for model')) {
+      const modelMatch = v.match(/No query results for model \[([^\]]+)\](?: (\S+))?/i);
+      const model = modelMatch?.[1] || 'Model';
+      const id = modelMatch?.[2] || '';
+      return {
+        summary: `A \`${t}\` is thrown because ${model}${id ? ` #${id}` : ''} could not be found in the database.`,
+        rootCause: `\`findOrFail()\` (or equivalent) was called with an ID that doesn't exist. The record may have been deleted, or the wrong ID was passed from the caller.`,
+        fix: `Use \`find()\` and handle the \`null\` case gracefully, or catch \`ModelNotFoundException\` and return a proper 404 response. Validate incoming IDs against the authenticated user's tenant before querying.`
+      };
+    }
+
+    // PDO / DB errors
+    if (vl.includes('pdoexception') || vl.includes('sqlstate')) {
+      return {
+        summary: `A database error crashed the request: "${v.slice(0, 120)}".`,
+        rootCause: `The SQL query failed — likely due to a schema mismatch (missing column/table), a constraint violation, or a connection issue.`,
+        fix: `Check whether pending migrations have been run. Review the query for invalid column references. If it's a constraint violation, add pre-flight validation before the write.`
+      };
+    }
+
+    // Connection refused / timeout
+    if (vl.includes('connection refused') || vl.includes('etimedout') || vl.includes('econnrefused')) {
+      return {
+        summary: `The service failed to connect to a downstream dependency: "${v.slice(0, 120)}".`,
+        rootCause: `A TCP connection attempt was rejected or timed out. The target service (database, Redis, external API) may be down, misconfigured, or unreachable from this host.`,
+        fix: `Verify the host/port configuration in the environment. Check that the dependency is running and reachable from this service's network. Add a circuit breaker or retry with backoff.`
+      };
+    }
+
+    // Unserialize / JSON decode
+    if (vl.includes('json') && (vl.includes('decode') || vl.includes('parse') || vl.includes('syntax'))) {
+      return {
+        summary: `JSON parsing failed: "${v.slice(0, 120)}".`,
+        rootCause: `An API response or stored value is not valid JSON. This can happen if the upstream service returns an error HTML page, a binary blob, or a truncated payload.`,
+        fix: `Log the raw response before parsing and validate it. Add error handling around the \`JSON.parse()\` call and fail gracefully with a meaningful message.`
+      };
     }
   }
+
+  // ── ValueError ────────────────────────────────────────────────────────────
+  if (tl.includes('valueerror')) {
+    return {
+      summary: `\`${t}\`: an unexpected value was encountered — "${v.slice(0, 120)}".`,
+      rootCause: `A function received a value it can't handle. This is usually a missing validation step or an assumption about the data format that doesn't always hold.`,
+      fix: `Add input validation before calling the failing function and surface a clear error message to the user rather than crashing.`
+    };
+  }
+
+  // ── Fallback ──────────────────────────────────────────────────────────────
+  return {
+    summary: `\`${t}\`: ${v.slice(0, 180)}`,
+    rootCause: null,
+    fix: null
+  };
+}
+
+function generateSentryBrief(issue, detail) {
+  // issue  — normalized Sentry issue object from state.sentryIssues
+  // detail — cached detail from state.sentryDetailCache[issue.id] (may be null)
+
+  const lines = [];
+
+  // ── Title ─────────────────────────────────────────────────────────────────
+  lines.push(`## ${issue.title}`);
+  lines.push('');
+
+  // ── Exception analysis ────────────────────────────────────────────────────
+  const exc = detail?.exceptions?.[0];
+  const analysis = exc ? _sentryAnalyseError(exc.type, exc.value) : null;
+
+  if (analysis) {
+    lines.push(analysis.summary);
+    lines.push('');
+  } else if (issue.culprit) {
+    lines.push(`A \`${issue.level}\` occurred in \`${issue.culprit}\`.`);
+    lines.push('');
+  }
+
+  // ── Key facts ─────────────────────────────────────────────────────────────
+  const tags = detail?.tags || [];
+  const tagMap = Object.fromEntries(tags.map(t => [t.key, t.value]));
+
+  const lastSeen = issue.lastSeen ? new Date(issue.lastSeen).toLocaleString() : null;
+  const firstSeen = issue.firstSeen ? new Date(issue.firstSeen).toLocaleString() : null;
+  const events = `${issue.count.toLocaleString()} event${issue.count !== 1 ? 's' : ''}`;
+  const users = issue.userCount > 0 ? ` affecting ${issue.userCount.toLocaleString()} user${issue.userCount !== 1 ? 's' : ''}` : '';
+
+  const facts = [];
+  if (tagMap['transaction'] || tagMap['url'])  facts.push(`**Affected endpoint:** \`${tagMap['transaction'] || tagMap['url']}\``);
+  if (tagMap['environment'])                   facts.push(`**Environment:** ${tagMap['environment']}`);
+  facts.push(`**Frequency:** ${events}${users}`);
+  if (lastSeen)                                facts.push(`**Last seen:** ${lastSeen}`);
+  if (firstSeen && firstSeen !== lastSeen)     facts.push(`**First seen:** ${firstSeen}`);
+  if (tagMap['runtime'] || tagMap['runtime.name']) {
+    const rt = [tagMap['runtime.name'], tagMap['runtime']].filter(Boolean).join(' ');
+    facts.push(`**Runtime:** ${rt}`);
+  }
+  if (tagMap['server_name'])                   facts.push(`**Server:** ${tagMap['server_name']}`);
+  facts.push(`**Project:** ${issue.project}`);
+
+  facts.forEach(f => lines.push(f));
+  lines.push('');
+
+  // ── Where it happens ──────────────────────────────────────────────────────
+  if (exc) {
+    const inAppFrames = (exc.frames || []).filter(f => f.inApp);
+    const topFrame = inAppFrames[0];
+
+    if (topFrame) {
+      const shortFile = topFrame.filename.replace(/^.*?(\/modules\/|\/src\/|\/app\/|\/pages\/|\/resources\/)/, '$1');
+      const location = `${shortFile}:${topFrame.lineno}`;
+      lines.push(`### Where it happens`);
+      lines.push(`In \`${topFrame.fn || topFrame.module || '(anonymous)'}\` at \`${location}\``);
+
+      // Find the suspect line from context
+      if (topFrame.context?.length) {
+        const suspectPair = topFrame.context.find(([ln]) => ln === topFrame.lineno);
+        if (suspectPair) {
+          const code = suspectPair[1].trim();
+          // Detect language from filename extension for fenced block
+          const ext = topFrame.filename.match(/\.(\w+)$/)?.[1] || '';
+          const lang = { php: 'php', js: 'js', ts: 'ts', tsx: 'tsx', jsx: 'jsx', py: 'python', rb: 'ruby' }[ext] || '';
+          lines.push('');
+          lines.push(`\`\`\`${lang}`);
+          lines.push(`${code}  ← line ${topFrame.lineno}`);
+          lines.push('```');
+        }
+      }
+      lines.push('');
+    }
+
+    // Full in-app call chain (skip the top frame already shown)
+    const remainingFrames = inAppFrames.slice(1, 5);
+    if (remainingFrames.length) {
+      lines.push(`**Call chain:**`);
+      remainingFrames.forEach(f => {
+        const sf = f.filename.replace(/^.*?(\/modules\/|\/src\/|\/app\/|\/pages\/|\/resources\/)/, '$1');
+        lines.push(`- \`${f.fn || f.module || '(anonymous)'}\` → \`${sf}:${f.lineno}\``);
+      });
+      lines.push('');
+    }
+  } else if (issue.culprit) {
+    lines.push(`### Where it happens`);
+    lines.push(`\`${issue.culprit}\``);
+    lines.push('');
+  }
+
+  // ── Root cause ────────────────────────────────────────────────────────────
+  if (analysis?.rootCause) {
+    lines.push(`### What went wrong`);
+    lines.push(analysis.rootCause);
+    lines.push('');
+  }
+
+  // ── Suggested fix ─────────────────────────────────────────────────────────
+  if (analysis?.fix) {
+    lines.push(`### Suggested fix`);
+    lines.push(analysis.fix);
+    lines.push('');
+  }
+
+  // ── Sentry link ───────────────────────────────────────────────────────────
+  if (issue.permalink) {
+    lines.push(`**Sentry:** ${issue.permalink}`);
+  }
+
+  return lines.join('\n').trim();
+}
+
+function sentryIssueBody(issue) {
+  const detail = state.sentryDetailCache[issue.id];
+  // If we have detail cached, produce a rich human-friendly brief; otherwise fall back to a
+  // lightweight summary so the item is still useful without waiting for the async load.
+  if (detail && !detail.error) {
+    return generateSentryBrief(issue, detail);
+  }
+
+  // Minimal fallback (detail not yet loaded)
+  const lines = [
+    `## ${issue.title}`,
+    '',
+    issue.culprit ? `A \`${issue.level}\` occurred in \`${issue.culprit}\`.` : `A \`${issue.level}\`-level Sentry issue.`,
+    '',
+    `**Project:** ${issue.project}`,
+    `**Frequency:** ${issue.count.toLocaleString()} events, ${issue.userCount.toLocaleString()} users affected`,
+    issue.lastSeen ? `**Last seen:** ${new Date(issue.lastSeen).toLocaleString()}` : '',
+    issue.permalink ? `**Sentry:** ${issue.permalink}` : ''
+  ].filter(Boolean);
 
   return lines.join('\n');
 }
 
-function addSentryIssueToMyList(id) {
+async function addSentryIssueToMyList(id) {
   const issue = state.sentryIssues.find(i => i.id === id);
   if (!issue) return;
 
-  // Include mapped repo names as labels so applySuggestedRepos picks them up
   const mappedRepos = SENTRY_PROJECT_REPO_MAP[issue.project] || [];
   const labels = [...new Set([issue.project, issue.level, 'sentry', ...mappedRepos])].filter(Boolean);
+
+  // If detail isn't cached yet, fetch it now so we can write a rich brief.
+  if (!state.sentryDetailCache[issue.id]) {
+    toast('Generating brief — fetching Sentry detail…', 'info');
+    await loadSentryIssueDetail(id);
+  }
+
   addMyListItem(issue.title, sentryIssueBody(issue), labels);
   toast(`"${issue.title.slice(0, 60)}" added to My List.`, 'success');
 }
 
+// Tracks in-flight detail promises so multiple callers can await the same request.
+const _sentryDetailPromises = {};
+
 async function loadSentryIssueDetail(id) {
-  if (state.sentryDetailCache[id] || state.sentryDetailLoading.has(id)) return;
+  if (state.sentryDetailCache[id]) return;
+  // If a fetch is already in-flight, return the same promise so callers can await it.
+  if (_sentryDetailPromises[id]) return _sentryDetailPromises[id];
+
   state.sentryDetailLoading.add(id);
-  try {
-    const data = await api(`/api/sentry/issues/${encodeURIComponent(id)}`);
-    state.sentryDetailCache[id] = data;
-  } catch (err) {
-    state.sentryDetailCache[id] = { error: err.message, tags: [], exceptions: [], errors: [] };
-  } finally {
-    state.sentryDetailLoading.delete(id);
-    if (state.selectedSentryId === id) renderSentryDetail();
-  }
+  _sentryDetailPromises[id] = (async () => {
+    try {
+      const data = await api(`/api/sentry/issues/${encodeURIComponent(id)}`);
+      state.sentryDetailCache[id] = data;
+    } catch (err) {
+      state.sentryDetailCache[id] = { error: err.message, tags: [], exceptions: [], errors: [] };
+    } finally {
+      state.sentryDetailLoading.delete(id);
+      delete _sentryDetailPromises[id];
+      if (state.selectedSentryId === id) renderSentryDetail();
+    }
+  })();
+
+  return _sentryDetailPromises[id];
 }
 
 function ensureSentryLoaded() {
